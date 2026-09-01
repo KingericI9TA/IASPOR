@@ -8,7 +8,8 @@ self.addEventListener("activate", (event) => {
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const target = event.notification.data?.url || "/?tab=pedido";
+  const fallback = new URL("./?tab=pedido", self.registration.scope).href;
+  const target = event.notification.data?.url || fallback;
   event.waitUntil(
     self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((windows) => {
       for (const client of windows) {

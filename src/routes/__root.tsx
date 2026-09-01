@@ -4,6 +4,7 @@ import { PreviewHostBridge } from "@/components/preview-host-bridge";
 import appCss from "../styles.css?url";
 
 import { APP_NAME } from "@/components/brand-mark";
+import { publicUrl } from "@/lib/utils";
 
 export const Route = createRootRoute({
   head: () => ({
@@ -19,10 +20,10 @@ export const Route = createRootRoute({
       { name: "theme-color", content: "#020617" },
     ],
     links: [
-      { rel: "icon", type: "image/svg+xml", href: "/favicon.svg" },
+      { rel: "icon", type: "image/svg+xml", href: publicUrl("favicon.svg") },
       { rel: "stylesheet", href: appCss },
-      { rel: "manifest", href: "/__grok/manifest.webmanifest" },
-      { rel: "apple-touch-icon", href: "/__grok/icon-180.png" },
+      { rel: "manifest", href: publicUrl("__grok/manifest.webmanifest") },
+      { rel: "apple-touch-icon", href: publicUrl("__grok/icon-180.png") },
       { rel: "preconnect", href: "https://fonts.googleapis.com" },
       {
         rel: "preconnect",

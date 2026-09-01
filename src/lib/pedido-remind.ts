@@ -1,4 +1,5 @@
 import { loadPedido } from "@/lib/faac-pedido";
+import { publicUrl } from "@/lib/utils";
 
 const SENT_KEY = "iaspor:pedido-reminded-ym";
 
@@ -45,7 +46,7 @@ export async function registerPedidoSw() {
   try {
     const existing = await navigator.serviceWorker.getRegistration();
     if (existing) return existing;
-    return await navigator.serviceWorker.register("/sw.js");
+    return await navigator.serviceWorker.register(publicUrl("sw.js"));
   } catch {
     return null;
   }
@@ -66,8 +67,8 @@ async function showPush(count: number) {
   const options: NotificationOptions = {
     body,
     tag: "iaspor-pedido-fin-mes",
-    icon: "/favicon.svg",
-    data: { url: "/?tab=pedido" },
+    icon: publicUrl("favicon.svg"),
+    data: { url: publicUrl("?tab=pedido") },
     silent: false,
   };
   try {
@@ -106,8 +107,8 @@ async function scheduleNativeTrigger(when: Date, count: number) {
           ? "Fin de mes: tienes 1 pieza pendiente de pedir."
           : `Fin de mes: tienes ${count} piezas pendientes de pedir.`,
       tag: "iaspor-pedido-fin-mes",
-      icon: "/favicon.svg",
-      data: { url: "/?tab=pedido" },
+      icon: publicUrl("favicon.svg"),
+      data: { url: publicUrl("?tab=pedido") },
       showTrigger: new Trigger(when.getTime()),
     } as NotificationOptions);
   } catch {

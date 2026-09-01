@@ -1,6 +1,7 @@
 import { PDFDocument, StandardFonts, rgb, type PDFPage } from "pdf-lib";
 import { createServerFn } from "@tanstack/react-start";
 import { ALBARAN_COMPANY, euro, parseCantidad, parseImporte, todayAlbaran } from "./albaran";
+import { publicUrl } from "./utils";
 
 export const PRE_FOLDER_ID = "13IblvhEX6yMXJKPbyb43R886fOf7w002";
 export const PRE_FOLDER_URL = `https://drive.google.com/drive/folders/${PRE_FOLDER_ID}?usp=drive_link`;
@@ -654,8 +655,8 @@ async function embedFonts(pdf: PDFDocument) {
   let bold = await pdf.embedFont(StandardFonts.HelveticaBold);
   try {
     const [reg, bld] = await Promise.all([
-      fetch("/albaran/Poppins-regular.ttf").then((r) => r.arrayBuffer()),
-      fetch("/albaran/Poppins-bold.ttf").then((r) => r.arrayBuffer()),
+      fetch(publicUrl("albaran/Poppins-regular.ttf")).then((r) => r.arrayBuffer()),
+      fetch(publicUrl("albaran/Poppins-bold.ttf")).then((r) => r.arrayBuffer()),
     ]);
     font = await pdf.embedFont(reg);
     bold = await pdf.embedFont(bld);

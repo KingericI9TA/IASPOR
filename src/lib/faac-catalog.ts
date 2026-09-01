@@ -1,8 +1,9 @@
 import pages from "./faac-catalog-pages.json";
+import { publicUrl } from "@/lib/utils";
 
 export const FAAC_CATALOG_ID = "1U7go0gu7qpVPJwSmxiCKMHphPt86aLw-";
 export const FAAC_CATALOG_VIEW = `https://drive.google.com/file/d/${FAAC_CATALOG_ID}/view?usp=drivesdk`;
-export const FAAC_CATALOG_PDF = "/catalogos/faac-2025.pdf";
+export const FAAC_CATALOG_PDF = publicUrl("catalogos/faac-2025.pdf");
 export const FAAC_CATALOG_TITLE = "Catálogo general FAAC 2025";
 
 export function faacCatalogPageUrl(pdfPage: number) {

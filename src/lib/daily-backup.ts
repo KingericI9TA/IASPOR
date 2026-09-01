@@ -1,6 +1,7 @@
 import { registerPedidoSw } from "@/lib/pedido-remind";
 import { downloadTallerZip } from "@/lib/backup";
 import { writeFolderEstado } from "@/lib/taller-folder";
+import { publicUrl } from "@/lib/utils";
 
 const DONE_KEY = "iaspor:daily-backup-day";
 const HOUR = 23;
@@ -30,8 +31,8 @@ async function showBackupNotify() {
   const options: NotificationOptions = {
     body: "Las 23:00. Toca para guardar la copia ZIP de hoy.",
     tag: "iaspor-copia-diaria",
-    icon: "/favicon.svg",
-    data: { url: "/?tab=archivos&copia=1" },
+    icon: publicUrl("favicon.svg"),
+    data: { url: publicUrl("?tab=archivos&copia=1") },
     silent: false,
   };
   try {
@@ -56,8 +57,8 @@ async function scheduleNativeTrigger(when: Date) {
     await reg.showNotification("IASPOR · copia diaria", {
       body: "Las 23:00. Toca para guardar la copia ZIP de hoy.",
       tag: "iaspor-copia-diaria",
-      icon: "/favicon.svg",
-      data: { url: "/?tab=archivos&copia=1" },
+      icon: publicUrl("favicon.svg"),
+      data: { url: publicUrl("?tab=archivos&copia=1") },
       showTrigger: new Trigger(when.getTime()),
     } as NotificationOptions);
   } catch {

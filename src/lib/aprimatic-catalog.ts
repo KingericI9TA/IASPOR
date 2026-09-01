@@ -1,9 +1,10 @@
 import pages from "./aprimatic-catalog-pages.json";
 import { type FaacCatalogHit } from "@/lib/faac-catalog";
+import { publicUrl } from "@/lib/utils";
 
 export const APRIMATIC_CATALOG_ID = "1-JhfpHRzVdWtEP9YOzQut9Hb6wTtxhIQ";
 export const APRIMATIC_CATALOG_VIEW = `https://drive.google.com/file/d/${APRIMATIC_CATALOG_ID}/view?usp=drivesdk`;
-export const APRIMATIC_CATALOG_PDF = "/catalogos/aprimatic-2026.pdf";
+export const APRIMATIC_CATALOG_PDF = publicUrl("catalogos/aprimatic-2026.pdf");
 export const APRIMATIC_CATALOG_TITLE = "Catálogo Aprimatic 2026";
 
 export type CatalogHit = FaacCatalogHit;

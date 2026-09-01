@@ -1,4 +1,4 @@
-import { cn } from "@/lib/utils";
+import { cn, publicUrl } from "@/lib/utils";
 
 export const APP_NAME = "IASPOR";
 
@@ -25,7 +25,7 @@ export function BrandMark({
 
   return (
     <img
-      src="/logo.jpg"
+      src={publicUrl("logo.jpg")}
       alt={APP_NAME}
       className={cn(
         "size-12 rounded-md object-cover ring-1 ring-primary/40",

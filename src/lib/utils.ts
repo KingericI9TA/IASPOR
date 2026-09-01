@@ -5,6 +5,15 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+export function publicUrl(path = "") {
+  const base = import.meta.env.BASE_URL || "/";
+  const prefix = base.endsWith("/") ? base : `${base}/`;
+  const raw = String(path);
+  if (!raw || raw === "/") return prefix;
+  if (raw.startsWith("?")) return `${prefix}${raw}`;
+  return `${prefix}${raw.replace(/^\/+/, "")}`;
+}
+
 export function normalize(text: string) {
   return text
     .toLowerCase()

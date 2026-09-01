@@ -1,5 +1,6 @@
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { createServerFn } from "@tanstack/react-start";
+import { publicUrl } from "@/lib/utils";
 
 const SEQ_KEY = "puertadocs:albaran-seq";
 const HIST_KEY = "puertadocs:albaran-hist";
@@ -320,8 +321,8 @@ export async function buildAlbaranPdf(rec: AlbaranRecord) {
   let bold = await pdf.embedFont(StandardFonts.HelveticaBold);
   try {
     const [reg, bld] = await Promise.all([
-      loadFontBytes("/albaran/Poppins-regular.ttf"),
-      loadFontBytes("/albaran/Poppins-bold.ttf"),
+      loadFontBytes(publicUrl("albaran/Poppins-regular.ttf")),
+      loadFontBytes(publicUrl("albaran/Poppins-bold.ttf")),
     ]);
     font = await pdf.embedFont(reg);
     bold = await pdf.embedFont(bld);

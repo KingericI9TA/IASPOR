@@ -1,6 +1,7 @@
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { createServerFn } from "@tanstack/react-start";
 import { ALBARAN_COMPANY } from "@/lib/albaran";
+import { publicUrl } from "@/lib/utils";
 
 export const PEDIDO_KEEP_ID = "1-PmtUUoeE770a5dxUecFnXy6kcQx785w";
 export const PEDIDO_KEEP_VIEW = `https://drive.google.com/file/d/${PEDIDO_KEEP_ID}/view?usp=drivesdk`;
@@ -208,8 +209,8 @@ async function embedPedidoFonts(pdf: PDFDocument) {
   let bold = await pdf.embedFont(StandardFonts.HelveticaBold);
   try {
     const [reg, bld] = await Promise.all([
-      fetch("/albaran/Poppins-regular.ttf").then((r) => r.arrayBuffer()),
-      fetch("/albaran/Poppins-bold.ttf").then((r) => r.arrayBuffer()),
+      fetch(publicUrl("albaran/Poppins-regular.ttf")).then((r) => r.arrayBuffer()),
+      fetch(publicUrl("albaran/Poppins-bold.ttf")).then((r) => r.arrayBuffer()),
     ]);
     font = await pdf.embedFont(reg);
     bold = await pdf.embedFont(bld);

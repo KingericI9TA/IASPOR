@@ -79,7 +79,7 @@ import {
 } from "@/lib/library";
 import { googleQuery, searchLocal, type LocalHit } from "@/lib/search-local";
 import { googleSimpleUrl } from "@/lib/google-search";
-import { fetchRemotePdf, searchWebManuals, type WebHit } from "@/lib/search-web";
+import { fetchRemotePdf, searchWebManuals, webEngineHits, type WebHit } from "@/lib/search-web";
 import {
   FAAC_FAMILIES,
   FAAC_MODELS,
@@ -308,23 +308,24 @@ function Home() {
   const runWeb = useCallback(async (q: string, openGoogle = false) => {
     const trimmed = q.trim();
     if (trimmed.length < 2) return;
+    const fallback = webEngineHits(trimmed);
     setWebLoading(true);
     setWebError(null);
+    setWebHits(fallback);
     try {
       if (openGoogle) window.open(googleSimpleUrl(trimmed), "_blank", "noopener,noreferrer");
+      const hosted =
+        typeof window !== "undefined" && /\.github\.io$/i.test(window.location.hostname);
+      if (hosted) return;
       const res = await Promise.race([
         searchWebManuals({ data: { query: trimmed } }),
         new Promise<never>((_, reject) => {
           window.setTimeout(() => reject(new Error("La búsqueda web tardó demasiado.")), 22_000);
         }),
       ]);
-      setWebHits(res.hits);
-      if (res.hits.length === 0) {
-        setWebError("Sin resultados web. Prueba marca + modelo (ej. FAAC 455 D).");
-      }
-    } catch (e) {
-      setWebHits([]);
-      setWebError(e instanceof Error ? e.message : "No se pudo buscar en la web");
+      if (res.hits.length > 0) setWebHits(res.hits);
+    } catch {
+      setWebHits(fallback);
     } finally {
       setWebLoading(false);
     }

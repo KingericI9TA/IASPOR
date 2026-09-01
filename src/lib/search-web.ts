@@ -181,6 +181,10 @@ function engineHits(query: string): WebHit[] {
   ];
 }
 
+export function webEngineHits(query: string): WebHit[] {
+  return engineHits(query);
+}
+
 function rankHits(hits: WebHit[], brand?: Brand, query = "") {
   const seen = new Set<string>();
   const unique: WebHit[] = [];

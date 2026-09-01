@@ -70,6 +70,33 @@ jobs:
           python3 -m http.server 8765 --directory ../public &
           sleep 1
           yes "" | bubblewrap update --skipVersionUpgrade
+          python3 - <<'PY'
+from pathlib import Path
+import re
+
+p = Path("app/src/main/AndroidManifest.xml")
+if not p.exists():
+    raise SystemExit(f"Falta {p}")
+text = p.read_text()
+needed = [
+    "android.permission.INTERNET",
+    "android.permission.ACCESS_NETWORK_STATE",
+]
+insert = "\n".join(
+    f'    <uses-permission android:name="{name}" />'
+    for name in needed
+    if name not in text
+)
+if insert:
+    updated, n = re.subn(r"(<manifest\b[^>]*>)", r"\1\n" + insert, text, count=1)
+    if n != 1:
+        raise SystemExit("No se pudo declarar INTERNET en AndroidManifest.xml")
+    p.write_text(updated)
+    print("permisos de red añadidos")
+else:
+    print("permisos de red ya estaban")
+print(p.read_text()[:1200])
+PY
           bubblewrap build --skipPwaValidation
           cp app-release-signed.apk ../IASPOR.apk
           ls -lh ../IASPOR.apk

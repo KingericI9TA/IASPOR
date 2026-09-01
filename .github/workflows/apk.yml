@@ -53,6 +53,13 @@ jobs:
             fi
           fi
           ls -la "$ANDROID_SDK_ROOT/cmdline-tools"
+          # Bubblewrap espera $SDK/tools o $SDK/bin (SDK antiguo).
+          if [ ! -e "$ANDROID_SDK_ROOT/tools" ] && [ ! -e "$ANDROID_SDK_ROOT/bin" ]; then
+            ln -sfn cmdline-tools/latest "$ANDROID_SDK_ROOT/tools" \
+              || ln -sfn "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" "$ANDROID_SDK_ROOT/bin" \
+              || true
+          fi
+          ls -la "$ANDROID_SDK_ROOT" | head
           mkdir -p "$HOME/.bubblewrap" android-twa
           printf '{"jdkPath":"%s","androidSdkPath":"%s"}\n' "$JAVA_HOME" "$ANDROID_SDK_ROOT" > "$HOME/.bubblewrap/config.json"
           cp android/twa-manifest.json android-twa/twa-manifest.json

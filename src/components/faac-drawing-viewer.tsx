@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { fetchFaacDrawing, type DrawingPart } from "@/lib/faac-spares";
-import { isStaticHost } from "@/lib/static-host";
+import { drawingPageUrl, loadFaacDrawing, type DrawingPart } from "@/lib/faac-spares";
 import { formatPedidoText } from "@/lib/faac-pedido";
 import { copyToClipboard } from "@/lib/utils";
 
@@ -37,7 +36,7 @@ export function FaacDrawingViewer({
   const [svg, setSvg] = useState<string | null>(null);
   const [parts, setParts] = useState<DrawingPart[]>([]);
   const [picked, setPicked] = useState<DrawingPart | null>(null);
-  const [url, setUrl] = useState<string | null>(null);
+  const [url, setUrl] = useState<string | null>(drawingPageUrl(drawingId));
 
   const byPos = useMemo(() => {
     const map = new Map<string, DrawingPart>();
@@ -54,22 +53,19 @@ export function FaacDrawingViewer({
       setStatus("Abriendo esquema…");
       setPicked(null);
       setSvg(null);
-      if (isStaticHost()) {
-        setStatus("El despiece online no está en esta copia. Ábrelo en spareparts.faacgroup.com.");
-        return;
-      }
+      setUrl(drawingPageUrl(drawingId));
       try {
-        const res = await fetchFaacDrawing({ data: { drawingId } });
+        const res = await loadFaacDrawing(drawingId);
         if (cancelled) return;
         if (!res.ok) {
           setStatus(res.error);
           return;
         }
-        setTitle(res.title);
+        setTitle(res.title || fallbackTitle || "Despiece FAAC");
         setParts(res.parts);
         setUrl(res.url);
         setSvg(res.svg);
-        setStatus("");
+        setStatus(res.svg || res.parts.length ? "" : "Sin piezas en este esquema.");
       } catch {
         if (!cancelled) setStatus("No se pudo cargar el despiece.");
       }
@@ -78,7 +74,7 @@ export function FaacDrawingViewer({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [drawingId]);
+  }, [drawingId, fallbackTitle]);
 
   const applyZoom = (next: number) => {
     const z = Math.min(4, Math.max(1, Math.round(next * 20) / 20));
@@ -120,47 +116,83 @@ export function FaacDrawingViewer({
     ? formatPedidoText([{ id: "x", code: picked.code, name: picked.name, qty: 1 }])
     : "";
 
+  const showIframe = Boolean(url && !svg);
+
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-[#b7c0c9] text-[#101820]">
       <div className="border-b border-[#8a9aaa] bg-[#f3efe4] px-3 py-3">
         <p className="truncate text-sm font-medium">{title}</p>
-        <p className="text-xs text-[#3a4a5c]">+ / − para ampliar. Al tocar una pieza se aleja.</p>
-        <div className="mt-2 grid grid-cols-3 gap-2">
-          <Button
-            type="button"
-            variant="secondary"
-            className="h-12 text-lg font-semibold"
-            onClick={() => applyZoom(zoomRef.current - 0.25)}
-          >
-            −
-          </Button>
-          <Button type="button" variant="secondary" className="h-12 font-semibold" onClick={() => applyZoom(1)}>
-            {zoomLabel}
-          </Button>
-          <Button
-            type="button"
-            variant="secondary"
-            className="h-12 text-lg font-semibold"
-            onClick={() => applyZoom(zoomRef.current + 0.25)}
-          >
-            +
-          </Button>
-        </div>
+        <p className="text-xs text-[#3a4a5c]">
+          {svg ? "+ / − para ampliar. Al tocar una pieza se aleja." : "Toca una pieza de la lista para copiar o añadir al pedido."}
+        </p>
+        {svg ? (
+          <div className="mt-2 grid grid-cols-3 gap-2">
+            <Button
+              type="button"
+              variant="secondary"
+              className="h-12 text-lg font-semibold"
+              onClick={() => applyZoom(zoomRef.current - 0.25)}
+            >
+              −
+            </Button>
+            <Button type="button" variant="secondary" className="h-12 font-semibold" onClick={() => applyZoom(1)}>
+              {zoomLabel}
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              className="h-12 text-lg font-semibold"
+              onClick={() => applyZoom(zoomRef.current + 0.25)}
+            >
+              +
+            </Button>
+          </div>
+        ) : null}
       </div>
       <div
         ref={scrollerRef}
         className="faac-drawing relative min-h-0 flex-1 overflow-auto p-2"
         onClick={(e) => {
+          if (!svg) return;
           e.preventDefault();
           e.stopPropagation();
           pickPart(e.target as Element);
         }}
       >
         {status ? <p className="px-2 py-4 text-sm text-muted">{status}</p> : null}
+        {showIframe ? (
+          <iframe
+            title={title}
+            src={url ?? undefined}
+            className="mb-2 h-[min(42dvh,280px)] w-full rounded-md border border-[#8a9aaa] bg-white"
+            referrerPolicy="no-referrer-when-downgrade"
+          />
+        ) : null}
         {svg ? (
           <div ref={frameRef}>
             <div dangerouslySetInnerHTML={{ __html: svg }} />
           </div>
+        ) : null}
+        {!svg && parts.length > 0 ? (
+          <ul className="flex flex-col gap-1.5">
+            {parts.map((p) => (
+              <li key={`${p.id}-${p.pos}`}>
+                <button
+                  type="button"
+                  className={`w-full rounded-md px-3 py-2 text-left ${
+                    picked?.id === p.id ? "bg-[#dfe7ee]" : "bg-[#eef2f6]"
+                  }`}
+                  onClick={() => setPicked(p)}
+                >
+                  <p className="font-medium leading-snug">{p.name}</p>
+                  <p className="mt-0.5 font-mono text-xs text-[#1d4f7a]">
+                    pos. {p.pos}
+                    {p.code ? ` · (${p.code})` : ""}
+                  </p>
+                </button>
+              </li>
+            ))}
+          </ul>
         ) : null}
       </div>
       {picked ? (
@@ -196,13 +228,14 @@ export function FaacDrawingViewer({
       <div className="border-t border-[#c4b9a4] bg-[#f3efe4] px-3 py-3">
         <div className="flex items-center justify-between gap-2">
           {url ? (
-            <button
-              type="button"
+            <a
+              href={url}
+              target="_blank"
+              rel="noopener noreferrer"
               className="text-xs text-primary underline-offset-4 hover:underline"
-              onClick={() => window.open(url, "_blank", "noopener,noreferrer")}
             >
               Abrir en FAAC
-            </button>
+            </a>
           ) : (
             <span />
           )}

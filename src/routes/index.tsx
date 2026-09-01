@@ -86,7 +86,8 @@ import {
   FAAC_MODELS,
   FAAC_SPARES_HOME,
   familyUrl,
-  searchFaacSpares,
+  queryFaacSpares,
+  resolveFaacDrawingId,
   type SpareHit,
   type SpareKind,
 } from "@/lib/faac-spares";
@@ -1575,12 +1576,7 @@ function SparesPane({
     setLoading(true);
     setError(null);
     try {
-      if (isStaticHost()) {
-        setHits([]);
-        setError("Abre spareparts.faacgroup.com desde el enlace de arriba.");
-        return;
-      }
-      const res = await searchFaacSpares({ data: { query: trimmed } });
+      const res = await queryFaacSpares(trimmed);
       if (!res.ok) {
         setHits([]);
         setError(res.error);
@@ -1593,6 +1589,32 @@ function SparesPane({
     } catch (e) {
       setHits([]);
       setError(friendlyServerError(e, "No se pudo consultar FAAC"));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const openDespiece = async (hit: SpareHit) => {
+    if (hit.drawingId) {
+      setDrawing({ id: hit.drawingId, title: hit.name });
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      const id = await resolveFaacDrawingId(hit.id);
+      if (id) {
+        setHits((prev) =>
+          (prev ?? []).map((x) =>
+            x.id === hit.id && x.kind === "despiece" ? { ...x, drawingId: id, url: x.url } : x,
+          ),
+        );
+        setDrawing({ id, title: hit.name });
+        return;
+      }
+      setPickedId(`${hit.kind}-${hit.id}`);
+    } catch (e) {
+      setError(friendlyServerError(e, "No se pudo abrir el despiece."));
     } finally {
       setLoading(false);
     }
@@ -1675,11 +1697,11 @@ function SparesPane({
             const open = pickedId === key;
             return (
             <li key={key} className="rounded-md hud p-3">
-              {h.kind === "despiece" && h.drawingId ? (
+              {h.kind === "despiece" ? (
                 <button
                   type="button"
                   className="block w-full text-left hover:text-primary"
-                  onClick={() => setDrawing({ id: h.drawingId!, title: h.name })}
+                  onClick={() => void openDespiece(h)}
                 >
                   <p className="font-medium">{h.name}</p>
                   <p className="mt-1 font-mono text-xs text-primary">Despiece · tavola</p>
@@ -1730,13 +1752,14 @@ function SparesPane({
         <ul className="grid grid-cols-2 gap-2">
           {FAAC_FAMILIES.map((f) => (
             <li key={f.id}>
-              <button
-                type="button"
-                onClick={() => window.open(familyUrl(f.id), "_blank", "noopener,noreferrer")}
+              <a
+                href={familyUrl(f.id)}
+                target="_blank"
+                rel="noopener noreferrer"
                 className="flex min-h-11 w-full items-center rounded-md hud px-3 py-2 text-sm hover:bg-raised"
               >
                 {f.name}
-              </button>
+              </a>
             </li>
           ))}
         </ul>

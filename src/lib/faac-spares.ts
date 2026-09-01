@@ -1,7 +1,9 @@
 import { createServerFn } from "@tanstack/react-start";
+import { isStaticHost } from "@/lib/static-host";
 
 const BASE = "https://spareparts.faacgroup.com/accessautomation/spareparts";
 export const FAAC_SPARES_HOME = `${BASE}/faac?lang=en-US`;
+const JINA = "https://r.jina.ai/";
 
 export type SpareKind = "despiece" | "recambio" | "familia";
 
@@ -23,6 +25,14 @@ export type DrawingPart = {
   ean: string;
   altCode: string;
 };
+
+export type SpareSearchResult =
+  | { ok: true; hits: SpareHit[] }
+  | { ok: false; error: string };
+
+export type DrawingResult =
+  | { ok: true; title: string; svg: string | null; parts: DrawingPart[]; url: string }
+  | { ok: false; error: string };
 
 export const FAAC_FAMILIES: { id: number; name: string }[] = [
   { id: 85, name: "Cancelas batientes" },
@@ -66,6 +76,8 @@ type Remote = {
   import_code?: string;
 };
 
+type GetText = (url: string) => Promise<string>;
+
 function tokens(s: string) {
   return s
     .toLowerCase()
@@ -105,90 +117,139 @@ export function familyUrl(id: number) {
   return `${BASE}/category/${id}`;
 }
 
-async function drawingUrlForGroup(groupId: number) {
+export function drawingPageUrl(drawingId: number) {
+  return `${BASE}/drawingPage/${drawingId}`;
+}
+
+function unwrapReader(text: string) {
+  const t = text.trim();
+  if (!t) return t;
+  if (t.startsWith("{") || t.startsWith("[")) return t;
+  const marker = "Markdown Content:";
+  const i = t.indexOf(marker);
+  if (i >= 0) return t.slice(i + marker.length).trim();
+  return t;
+}
+
+function parseJsonPayload(text: string) {
+  const raw = unwrapReader(text);
   try {
-    const res = await fetch(`${BASE}/group/card/${groupId}`, {
-      headers: { "User-Agent": "ASPOR-AI/1.0 (manual technician catalog)" },
-      signal: AbortSignal.timeout(8_000),
+    return JSON.parse(raw);
+  } catch {
+    const start = raw.search(/[\[{]/);
+    const end = Math.max(raw.lastIndexOf("]"), raw.lastIndexOf("}"));
+    if (start >= 0 && end > start) return JSON.parse(raw.slice(start, end + 1));
+    throw new Error("No se pudo leer el catálogo de recambios.");
+  }
+}
+
+function faacError(e: unknown, fallback: string) {
+  const msg = e instanceof Error ? e.message : "";
+  if (/429|rate limit/i.test(msg)) return "FAAC ocupado. Prueba en unos segundos.";
+  if (/abort|timeout/i.test(msg)) return "El catálogo tardó demasiado.";
+  if (/invariant failed|content-type/i.test(msg)) return fallback;
+  return msg || fallback;
+}
+
+async function serverGet(url: string) {
+  const res = await fetch(url, {
+    headers: { "User-Agent": "IASPOR/1.0 (manual technician catalog)" },
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!res.ok) throw new Error(`Catálogo FAAC no disponible (${res.status})`);
+  return res.text();
+}
+
+async function browserGet(url: string) {
+  try {
+    const direct = await fetch(url, { signal: AbortSignal.timeout(8_000) });
+    if (direct.ok) return await direct.text();
+  } catch {
+    /* CORS en GitHub / APK */
+  }
+  const jsonLike = /searchJson|\/parts\//.test(url);
+  const res = await fetch(`${JINA}${url}`, {
+    headers: jsonLike
+      ? { "X-Return-Format": "text", "X-Locale": "it-IT", "Accept-Language": "it" }
+      : { "X-Locale": "it-IT", "Accept-Language": "it" },
+    signal: AbortSignal.timeout(18_000),
+  });
+  if (res.status === 429) throw new Error("FAAC ocupado. Prueba en unos segundos.");
+  if (!res.ok) throw new Error(`Catálogo FAAC no disponible (${res.status})`);
+  return unwrapReader(await res.text());
+}
+
+function hitsFromRows(rows: Remote[], q: string): SpareHit[] {
+  const hits: SpareHit[] = [];
+  const seen = new Set<string>();
+  for (const row of rows) {
+    if (!row || typeof row.id !== "number") continue;
+    const kind = kindOf(row.type);
+    const name = (row.name || row.fullname || "Recambio FAAC").trim().slice(0, 160);
+    if ((kind === "despiece" || kind === "familia") && !nameMatchesModel(name, q)) {
+      continue;
+    }
+    const code = String(row.import_code ?? "").trim();
+    const key = `${kind}-${row.id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    hits.push({
+      id: row.id,
+      kind,
+      code,
+      name,
+      url: itemUrl(row, kind),
     });
-    if (!res.ok) return null;
-    const html = await res.text();
+  }
+  const order: Record<SpareKind, number> = { despiece: 0, familia: 1, recambio: 2 };
+  hits.sort((a, b) => order[a.kind] - order[b.kind] || a.name.localeCompare(b.name));
+  return hits.slice(0, 40);
+}
+
+async function attachDrawings(hits: SpareHit[], getText: GetText) {
+  const drawings = await Promise.all(
+    hits
+      .filter((h) => h.kind === "despiece")
+      .slice(0, 8)
+      .map(async (h) => [h.id, await drawingIdFromGroup(h.id, getText)] as const),
+  );
+  const drawingMap = new Map(drawings);
+  for (const hit of hits) {
+    if (hit.kind !== "despiece") continue;
+    const id = drawingMap.get(hit.id);
+    if (id) {
+      hit.drawingId = id;
+      hit.url = drawingPageUrl(id);
+    }
+  }
+}
+
+async function drawingIdFromGroup(groupId: number, getText: GetText) {
+  try {
+    const html = await getText(`${BASE}/group/card/${groupId}`);
     const match = html.match(/drawingPage\/(\d+)/);
-    return match ? `${BASE}/drawingPage/${match[1]}` : null;
+    return match ? Number(match[1]) : null;
   } catch {
     return null;
   }
 }
 
-export const searchFaacSpares = createServerFn({ method: "POST" })
-  .validator((input: { query: string }) => {
-    const query = input.query.trim().slice(0, 80);
-    if (query.length < 2) throw new Error("Indica modelo o código FAAC");
-    return { query };
-  })
-  .handler(async ({ data }) => {
-    const q = data.query.replace(/\s+/g, " ");
-    const url = `${BASE}/searchJson?query=${encodeURIComponent(q)}`;
-    const res = await fetch(url, {
-      headers: { "User-Agent": "ASPOR-AI/1.0 (manual technician catalog)" },
-      signal: AbortSignal.timeout(15_000),
-    });
-    if (!res.ok) {
-      return { ok: false as const, error: `Catálogo FAAC no disponible (${res.status})` };
-    }
-    let rows: Remote[] = [];
-    try {
-      rows = (await res.json()) as Remote[];
-    } catch {
-      return { ok: false as const, error: "No se pudo leer el catálogo de recambios." };
-    }
+async function searchWith(query: string, getText: GetText, withDrawings: boolean): Promise<SpareSearchResult> {
+  const q = query.replace(/\s+/g, " ").trim().slice(0, 80);
+  if (q.length < 2) return { ok: false, error: "Indica modelo o código FAAC" };
+  try {
+    const raw = await getText(`${BASE}/searchJson?query=${encodeURIComponent(q)}`);
+    const rows = parseJsonPayload(raw) as Remote[];
     if (!Array.isArray(rows)) {
-      return { ok: false as const, error: "Respuesta inesperada del catálogo FAAC." };
+      return { ok: false, error: "Respuesta inesperada del catálogo FAAC." };
     }
-
-    const hits: SpareHit[] = [];
-    const seen = new Set<string>();
-    for (const row of rows) {
-      if (!row || typeof row.id !== "number") continue;
-      const kind = kindOf(row.type);
-      const name = (row.name || row.fullname || "Recambio FAAC").trim().slice(0, 160);
-      if ((kind === "despiece" || kind === "familia") && !nameMatchesModel(name, q)) {
-        continue;
-      }
-      const code = String(row.import_code ?? "").trim();
-      const key = `${kind}-${row.id}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      hits.push({
-        id: row.id,
-        kind,
-        code,
-        name,
-        url: itemUrl(row, kind),
-      });
-    }
-
-    const drawings = await Promise.all(
-      hits
-        .filter((h) => h.kind === "despiece")
-        .slice(0, 8)
-        .map(async (h) => [h.id, await drawingUrlForGroup(h.id)] as const),
-    );
-    const drawingMap = new Map(drawings);
-    for (const hit of hits) {
-      if (hit.kind !== "despiece") continue;
-      const drawing = drawingMap.get(hit.id);
-      if (drawing) {
-        hit.url = drawing;
-        const m = drawing.match(/drawingPage\/(\d+)/);
-        if (m) hit.drawingId = Number(m[1]);
-      }
-    }
-
-    const order: Record<SpareKind, number> = { despiece: 0, familia: 1, recambio: 2 };
-    hits.sort((a, b) => order[a.kind] - order[b.kind] || a.name.localeCompare(b.name));
-    return { ok: true as const, hits: hits.slice(0, 40) };
-  });
+    const hits = hitsFromRows(rows, q);
+    if (withDrawings) await attachDrawings(hits, getText);
+    return { ok: true, hits };
+  } catch (e) {
+    return { ok: false, error: faacError(e, "No se pudo consultar FAAC") };
+  }
+}
 
 function extractDrawingSvg(html: string) {
   const match = html.match(/<svg\b[\s\S]*?<\/svg>/i);
@@ -212,73 +273,98 @@ function drawingTitle(html: string) {
   return m ? m[1].replace(/\s+/g, " ").trim() : "Despiece FAAC";
 }
 
+function partsFromJson(body: {
+  data?: {
+    id?: number;
+    code?: string;
+    name?: string;
+    position?: string | number;
+    quantity?: number;
+    ean?: string;
+    substitutive_code?: string;
+  }[];
+}): DrawingPart[] {
+  return (body.data ?? []).map((p) => ({
+    id: Number(p.id) || 0,
+    pos: String(p.position ?? "").trim(),
+    code: String(p.code ?? "").trim(),
+    name: String(p.name ?? "Recambio FAAC").trim().slice(0, 180),
+    qty: Math.max(1, Number(p.quantity) || 1),
+    ean: String(p.ean ?? "").trim(),
+    altCode: String(p.substitutive_code ?? "").trim(),
+  }));
+}
+
+async function drawingWith(drawingId: number, getText: GetText): Promise<DrawingResult> {
+  const id = drawingId;
+  const url = drawingPageUrl(id);
+  try {
+    const [pageText, partsText] = await Promise.all([
+      getText(url).catch(() => ""),
+      getText(`${BASE}/parts/${id}`),
+    ]);
+    const svg = pageText ? extractDrawingSvg(pageText) : null;
+    let parts: DrawingPart[] = [];
+    try {
+      parts = partsFromJson(parseJsonPayload(partsText));
+    } catch {
+      parts = [];
+    }
+    if (!svg && parts.length === 0) {
+      return { ok: false, error: "Sin piezas en este esquema." };
+    }
+    return {
+      ok: true,
+      title: pageText ? drawingTitle(pageText) : "Despiece FAAC",
+      svg,
+      parts,
+      url,
+    };
+  } catch (e) {
+    return { ok: false, error: faacError(e, "No se pudo cargar el despiece.") };
+  }
+}
+
+export const searchFaacSpares = createServerFn({ method: "POST" })
+  .validator((input: { query: string }) => {
+    const query = input.query.trim().slice(0, 80);
+    if (query.length < 2) throw new Error("Indica modelo o código FAAC");
+    return { query };
+  })
+  .handler(async ({ data }) => searchWith(data.query, serverGet, true));
+
 export const fetchFaacDrawing = createServerFn({ method: "POST" })
   .validator((input: { drawingId: number }) => {
     const drawingId = Number(input.drawingId);
     if (!Number.isInteger(drawingId) || drawingId < 1) throw new Error("Despiece no válido");
     return { drawingId };
   })
-  .handler(async ({ data }) => {
-    const id = data.drawingId;
-    try {
-      const [pageRes, partsRes] = await Promise.all([
-        fetch(`${BASE}/drawingPage/${id}`, {
-          headers: { "User-Agent": "IASPOR/1.0 (manual technician catalog)" },
-          signal: AbortSignal.timeout(18_000),
-        }),
-        fetch(`${BASE}/parts/${id}`, {
-          headers: {
-            Accept: "application/json",
-            "User-Agent": "IASPOR/1.0 (manual technician catalog)",
-          },
-          signal: AbortSignal.timeout(12_000),
-        }),
-      ]);
-      if (!pageRes.ok) {
-        return { ok: false as const, error: `No se pudo abrir el esquema (${pageRes.status})` };
-      }
-      const html = await pageRes.text();
-      const svg = extractDrawingSvg(html);
-      if (!svg) return { ok: false as const, error: "El despiece no trae esquema." };
-      let parts: DrawingPart[] = [];
-      if (partsRes.ok) {
-        const body = (await partsRes.json()) as {
-          data?: {
-            id?: number;
-            code?: string;
-            name?: string;
-            position?: string | number;
-            quantity?: number;
-            ean?: string;
-            substitutive_code?: string;
-          }[];
-        };
-        parts = (body.data ?? []).map((p) => ({
-          id: Number(p.id) || 0,
-          pos: String(p.position ?? "").trim(),
-          code: String(p.code ?? "").trim(),
-          name: String(p.name ?? "Recambio FAAC").trim().slice(0, 180),
-          qty: Math.max(1, Number(p.quantity) || 1),
-          ean: String(p.ean ?? "").trim(),
-          altCode: String(p.substitutive_code ?? "").trim(),
-        }));
-      }
-      if (parts.length === 0) {
-        return { ok: false as const, error: "Sin piezas en este esquema." };
-      }
-      return {
-        ok: true as const,
-        title: drawingTitle(html),
-        svg,
-        parts,
-        url: `${BASE}/drawingPage/${id}`,
-      };
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : "";
-      if (/abort|timeout/i.test(msg)) {
-        return { ok: false as const, error: "El esquema tardó demasiado." };
-      }
-      return { ok: false as const, error: "No se pudo cargar el despiece." };
-    }
-  });
+  .handler(async ({ data }) => drawingWith(data.drawingId, serverGet));
 
+export async function queryFaacSpares(query: string): Promise<SpareSearchResult> {
+  if (typeof window !== "undefined" && isStaticHost()) {
+    return searchWith(query, browserGet, false);
+  }
+  try {
+    return await searchFaacSpares({ data: { query } });
+  } catch (e) {
+    const fallback = await searchWith(query, browserGet, false);
+    if (fallback.ok) return fallback;
+    return { ok: false, error: faacError(e, fallback.error) };
+  }
+}
+
+export async function loadFaacDrawing(drawingId: number): Promise<DrawingResult> {
+  if (typeof window !== "undefined" && isStaticHost()) {
+    return drawingWith(drawingId, browserGet);
+  }
+  try {
+    return await fetchFaacDrawing({ data: { drawingId } });
+  } catch {
+    return drawingWith(drawingId, browserGet);
+  }
+}
+
+export async function resolveFaacDrawingId(groupId: number): Promise<number | null> {
+  return drawingIdFromGroup(groupId, browserGet);
+}

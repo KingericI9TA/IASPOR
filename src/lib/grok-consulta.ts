@@ -1,4 +1,8 @@
 import { createServerFn } from "@tanstack/react-start";
+import { queryFaacSpares } from "@/lib/faac-spares";
+import { googlePdfUrl, googleSimpleUrl } from "@/lib/google-search";
+import { listLibrary } from "@/lib/library";
+import { searchLocal } from "@/lib/search-local";
 import { isStaticHost } from "@/lib/static-host";
 
 const LOCAL_KEY = "iaspor-xai-key";
@@ -7,7 +11,7 @@ const SYSTEM =
 
 export type GrokAskResult =
   | { ok: true; answer: string }
-  | { ok: false; error: string; needKey?: boolean };
+  | { ok: false; error: string };
 
 export function grokWebUrl(question: string) {
   return `https://grok.com/?q=${encodeURIComponent(question.slice(0, 400))}`;
@@ -30,6 +34,88 @@ export function saveLocalGrokKey(key: string) {
   } catch {
     /* ignore */
   }
+}
+
+function snippetAround(text: string, query: string) {
+  const hay = text.replace(/\s+/g, " ").trim();
+  const q = query.trim().split(/\s+/).filter((t) => t.length > 2)[0] ?? query;
+  const i = hay.toLowerCase().indexOf(q.toLowerCase());
+  if (i < 0) return hay.slice(0, 220);
+  const from = Math.max(0, i - 80);
+  return (from ? "…" : "") + hay.slice(from, from + 220);
+}
+
+function fieldTips(question: string) {
+  const q = question.toLowerCase();
+  const tips: string[] = [];
+  if (/no cierra|queda abierta|no baja/.test(q)) {
+    tips.push(
+      "Si no cierra: fotocélulas sucias o desalineadas, final de carrera / encoder, obstáculo, fuerza de cierre baja o jumper de seguridad abierto.",
+    );
+  }
+  if (/no abre|no sube|no arranca/.test(q)) {
+    tips.push(
+      "Si no abre: 230 V en la placa, fusible, desbloqueo mecánico, receptor/mando y final de apertura.",
+    );
+  }
+  if (/parpade|led|error|e\d|err/.test(q)) {
+    tips.push(
+      "Anota parpadeos del LED de la central (secuencia). En 746/740 suele ser fotocélulas, encoder o tope.",
+    );
+  }
+  if (/fotoc[eé]l/.test(q)) {
+    tips.push("Fotocélulas: limpia, alinea TX/RX, 24 V y puente temporal en la placa solo para diagnóstico.");
+  }
+  if (/mando|emisor|no responde el/.test(q)) {
+    tips.push("Mando: pila, memorizar de nuevo, antena en la placa y que no esté en modo radio bloqueado.");
+  }
+  if (!tips.length) {
+    tips.push(
+      "Orden de campo: alimentación → desbloqueo → fotocélulas → finales/encoder → radio → fuerza/tiempos en la placa.",
+    );
+  }
+  return tips;
+}
+
+export async function consultaTaller(question: string, context = ""): Promise<string> {
+  const q = `${context} ${question}`.replace(/\s+/g, " ").trim();
+  const lines: string[] = [];
+  lines.push(...fieldTips(q));
+
+  try {
+    const faac = await queryFaacSpares(q);
+    if (faac.ok && faac.hits.length) {
+      lines.push("");
+      lines.push("Catálogo FAAC:");
+      for (const hit of faac.hits.slice(0, 6)) {
+        const code = hit.code ? ` (${hit.code})` : "";
+        lines.push(`· ${hit.name}${code} — ${hit.kind}`);
+      }
+    }
+  } catch {
+    /* catálogo no disponible */
+  }
+
+  try {
+    const library = await listLibrary();
+    const local = searchLocal(q, library);
+    const withText = local.filter((h) => h.library?.text);
+    if (withText.length) {
+      lines.push("");
+      lines.push("En tus PDFs:");
+      for (const hit of withText.slice(0, 4)) {
+        const doc = hit.library!;
+        lines.push(`· ${doc.name}: ${snippetAround(doc.text, q)}`);
+      }
+    }
+  } catch {
+    /* sin archivos */
+  }
+
+  lines.push("");
+  lines.push(`Google: ${googleSimpleUrl(q)}`);
+  lines.push(`PDF: ${googlePdfUrl(q)}`);
+  return lines.join("\n").slice(0, 4000);
 }
 
 export async function completeGrok(
@@ -55,9 +141,6 @@ export async function completeGrok(
       }),
       signal: AbortSignal.timeout(55_000),
     });
-    if (res.status === 401 || res.status === 403) {
-      return { ok: false, error: "Clave de Grok no válida.", needKey: true };
-    }
     if (!res.ok) return { ok: false, error: "Grok no respondió. Prueba otra vez." };
     const body = (await res.json()) as { choices?: { message?: { content?: string } }[] };
     const answer = body.choices?.[0]?.message?.content?.trim();
@@ -66,9 +149,9 @@ export async function completeGrok(
   } catch (e) {
     const msg = e instanceof Error ? e.message : "";
     if (/abort|timeout/i.test(msg)) {
-      return { ok: false, error: "Grok tardó demasiado. Pregunta más corta o inténtalo otra vez." };
+      return { ok: false, error: "Grok tardó demasiado." };
     }
-    return { ok: false, error: "Sin red. Prueba otra vez." };
+    return { ok: false, error: "Sin red." };
   }
 }
 
@@ -86,19 +169,20 @@ export const askGrok = createServerFn({ method: "POST" })
 
 export async function queryGrok(question: string, context = ""): Promise<GrokAskResult> {
   const localKey = loadLocalGrokKey();
-  if (localKey) return completeGrok(localKey, question, context);
+  if (localKey) {
+    const direct = await completeGrok(localKey, question, context);
+    if (direct.ok) return direct;
+  }
 
   if (typeof window === "undefined" || !isStaticHost()) {
     try {
-      return await askGrok({ data: { question, context } });
+      const live = await askGrok({ data: { question, context } });
+      if (live.ok) return live;
     } catch {
-      /* APK / Pages: no hay servidor */
+      /* teléfono: sin servidor */
     }
   }
 
-  return {
-    ok: false,
-    needKey: true,
-    error: "En el teléfono Grok necesita una clave xAI, o ábrelo en grok.com.",
-  };
+  const answer = await consultaTaller(question, context);
+  return { ok: true, answer };
 }

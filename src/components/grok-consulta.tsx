@@ -3,7 +3,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { grokWebUrl, loadLocalGrokKey, queryGrok, saveLocalGrokKey } from "@/lib/grok-consulta";
+import { grokWebUrl, queryGrok } from "@/lib/grok-consulta";
 import { copyToClipboard } from "@/lib/utils";
 
 export function GrokConsulta({ seed = "" }: { seed?: string }) {
@@ -11,8 +11,6 @@ export function GrokConsulta({ seed = "" }: { seed?: string }) {
   const [q, setQ] = useState("");
   const [answer, setAnswer] = useState("");
   const [busy, setBusy] = useState(false);
-  const [key, setKey] = useState("");
-  const [needKey, setNeedKey] = useState(false);
 
   const ask = async () => {
     const question = q.trim() || seed.trim();
@@ -20,22 +18,12 @@ export function GrokConsulta({ seed = "" }: { seed?: string }) {
       toast.message("Escribe qué quieres consultar");
       return;
     }
-    if (key.trim() && key.trim() !== loadLocalGrokKey()) saveLocalGrokKey(key);
     setBusy(true);
     setAnswer("");
     try {
       const res = await queryGrok(question, seed);
-      if (res.ok) {
-        setNeedKey(false);
-        setAnswer(res.answer);
-        return;
-      }
-      if (res.needKey) {
-        setNeedKey(true);
-        toast.message(res.error);
-        return;
-      }
-      toast.error(res.error);
+      if (res.ok) setAnswer(res.answer);
+      else toast.error(res.error);
     } catch {
       toast.error("No se pudo consultar");
     } finally {
@@ -52,7 +40,6 @@ export function GrokConsulta({ seed = "" }: { seed?: string }) {
         onClick={() => {
           setOpen(true);
           if (!q && seed) setQ(seed);
-          setKey(loadLocalGrokKey());
         }}
       >
         <Sparkles className="size-4" />
@@ -87,35 +74,24 @@ export function GrokConsulta({ seed = "" }: { seed?: string }) {
                 Preguntar
               </Button>
             </form>
-            {needKey ? (
-              <div className="rounded-md hud p-3">
-                <p className="text-sm leading-relaxed text-muted">
-                  En el teléfono pega una vez tu clave de xAI (console.x.ai → API keys) para que Grok
-                  responda aquí. Si no, ábrelo en Grok.com con la misma pregunta.
-                </p>
-                <Input
-                  className="mt-2"
-                  type="password"
-                  autoComplete="off"
-                  value={key}
-                  onChange={(e) => setKey(e.target.value)}
-                  placeholder="Clave xAI"
-                  aria-label="Clave xAI"
-                />
-                <div className="mt-2 grid grid-cols-2 gap-2">
+            {busy ? <p className="text-sm text-muted">Buscando en catálogo y tus PDFs…</p> : null}
+            {answer ? (
+              <div className="min-h-0 flex-1 overflow-auto rounded-md hud p-4">
+                <p className="whitespace-pre-wrap text-sm leading-relaxed text-fg">{answer}</p>
+                <div className="mt-4 grid grid-cols-2 gap-2">
                   <Button
                     type="button"
                     variant="secondary"
-                    onClick={() => {
-                      saveLocalGrokKey(key);
-                      void ask();
+                    onClick={async () => {
+                      const ok = await copyToClipboard(answer);
+                      toast[ok ? "success" : "error"](ok ? "Copiado" : "No se pudo copiar");
                     }}
                   >
-                    Guardar y preguntar
+                    Copiar
                   </Button>
                   <a
                     className="inline-flex h-10 items-center justify-center rounded-md bg-primary px-3 text-sm font-semibold text-primary-foreground"
-                    href={grokWebUrl(q.trim() || seed.trim() || "IASPOR puertas automáticas FAAC")}
+                    href={grokWebUrl(q.trim() || seed.trim())}
                     target="_blank"
                     rel="noopener noreferrer"
                   >
@@ -123,24 +99,7 @@ export function GrokConsulta({ seed = "" }: { seed?: string }) {
                   </a>
                 </div>
               </div>
-            ) : null}
-            {busy ? <p className="text-sm text-muted">Grok está pensando…</p> : null}
-            {answer ? (
-              <div className="min-h-0 flex-1 overflow-auto rounded-md hud p-4">
-                <p className="whitespace-pre-wrap text-sm leading-relaxed text-fg">{answer}</p>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  className="mt-4"
-                  onClick={async () => {
-                    const ok = await copyToClipboard(answer);
-                    toast[ok ? "success" : "error"](ok ? "Copiado" : "No se pudo copiar");
-                  }}
-                >
-                  Copiar respuesta
-                </Button>
-              </div>
-            ) : !needKey ? (
+            ) : !busy ? (
               <p className="text-sm leading-relaxed text-muted">
                 Pregunta por un motor, central, código de error o recambio. Si vienes de Buscar, ya trae ese modelo.
               </p>

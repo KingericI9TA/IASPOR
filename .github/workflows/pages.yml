@@ -40,7 +40,13 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      - name: Liberar despliegue anterior
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api -X POST "repos/${GITHUB_REPOSITORY}/pages/deployments/22973e05c8fbe9cf0599b9a4af0d8ad1849897d4/cancel" || true
+          gh api -X POST "repos/${GITHUB_REPOSITORY}/pages/deployments/4218792c6045df9354134af5a2fe284e4eaea1f0/cancel" || true
       - id: deployment
         uses: actions/deploy-pages@v4
         with:
-          timeout: "900000"
+          timeout: "600000"

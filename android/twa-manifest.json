@@ -24,7 +24,7 @@
   "appVersionCode": 1,
   "shortcuts": [],
   "generatorApp": "bubblewrap-cli",
-  "webManifestUrl": "https://kingericI9ta.github.io/IASPOR/__grok/manifest.webmanifest",
+  "webManifestUrl": "http://127.0.0.1:8765/manifest.webmanifest",
   "fallbackType": "customtabs",
   "features": {},
   "alphaDependencies": {

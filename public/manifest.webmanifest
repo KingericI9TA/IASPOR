@@ -1,0 +1,24 @@
+{
+  "name": "IASPOR",
+  "short_name": "IASPOR",
+  "id": "/IASPOR/",
+  "start_url": "/IASPOR/",
+  "scope": "/IASPOR/",
+  "display": "standalone",
+  "background_color": "#020617",
+  "theme_color": "#020617",
+  "icons": [
+    {
+      "src": "/IASPOR/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/IASPOR/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}

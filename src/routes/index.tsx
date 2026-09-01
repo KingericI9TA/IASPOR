@@ -78,8 +78,9 @@ import {
   type LibraryDoc,
 } from "@/lib/library";
 import { googleQuery, searchLocal, type LocalHit } from "@/lib/search-local";
-import { googleSimpleUrl } from "@/lib/google-search";
-import { fetchRemotePdf, searchWebManuals, webEngineHits, type WebHit } from "@/lib/search-web";
+import { webEngineHits, type WebHit } from "@/lib/google-search";
+import { fetchRemotePdf } from "@/lib/search-web";
+import { isStaticHost, friendlyServerError } from "@/lib/static-host";
 import {
   FAAC_FAMILIES,
   FAAC_MODELS,
@@ -146,8 +147,12 @@ import {
 } from "@/lib/taller-folder";
 import { extractOfficeText, kindOfFile } from "@/lib/office-text";
 import { cn, copyToClipboard, formatBytes, formatWhen } from "@/lib/utils";
+import { AppErrorComponent } from "@/lib/error-component";
 
-export const Route = createFileRoute("/")({ component: Home });
+export const Route = createFileRoute("/")({
+  component: Home,
+  errorComponent: AppErrorComponent,
+});
 
 type Tab = "buscar" | "archivos" | "marcas" | "catalogo" | "piezas" | "pedido" | "codigos" | "albaran" | "presupuesto";
 
@@ -305,30 +310,12 @@ function Home() {
     [query, library, syncedDocs],
   );
 
-  const runWeb = useCallback(async (q: string, openGoogle = false) => {
+  const runWeb = useCallback((q: string) => {
     const trimmed = q.trim();
     if (trimmed.length < 2) return;
-    const fallback = webEngineHits(trimmed);
-    setWebLoading(true);
     setWebError(null);
-    setWebHits(fallback);
-    try {
-      if (openGoogle) window.open(googleSimpleUrl(trimmed), "_blank", "noopener,noreferrer");
-      const hosted =
-        typeof window !== "undefined" && /\.github\.io$/i.test(window.location.hostname);
-      if (hosted) return;
-      const res = await Promise.race([
-        searchWebManuals({ data: { query: trimmed } }),
-        new Promise<never>((_, reject) => {
-          window.setTimeout(() => reject(new Error("La búsqueda web tardó demasiado.")), 22_000);
-        }),
-      ]);
-      if (res.hits.length > 0) setWebHits(res.hits);
-    } catch {
-      setWebHits(fallback);
-    } finally {
-      setWebLoading(false);
-    }
+    setWebLoading(false);
+    setWebHits(webEngineHits(trimmed));
   }, []);
 
   const persistSync = (next: SyncSettings) => {
@@ -337,6 +324,10 @@ function Home() {
   };
 
   const runCatalogSync = useCallback(async () => {
+    if (isStaticHost()) {
+      toast.message("El catálogo remoto no está en esta copia. Usa los PDF de la carpeta.");
+      return;
+    }
     setSyncing(true);
     try {
       const res = await Promise.race([
@@ -364,7 +355,7 @@ function Home() {
       });
       toast.success(`Catálogo actualizado: ${res.docs.length} fichas`);
     } catch (e) {
-      const raw = e instanceof Error ? e.message : "No se pudo sincronizar";
+      const raw = friendlyServerError(e, "La sincronización no está en esta copia.");
       const msg = /abort|timeout|agotado/i.test(raw)
         ? "La sincronización tardó demasiado. Pulsa de nuevo más tarde."
         : raw;
@@ -378,6 +369,7 @@ function Home() {
   useEffect(() => {
     if (autoTried.current) return;
     autoTried.current = true;
+    if (isStaticHost()) return;
     const settings = loadSyncSettings();
     if (shouldAutoSync(settings)) void runCatalogSync();
   }, [runCatalogSync]);
@@ -392,7 +384,7 @@ function Home() {
     setTab("buscar");
     const hits = searchLocal(trimmed, library, syncedDocs);
     const hasFile = hits.some((h) => h.source === "archivo");
-    if (!hasFile) void runWeb(trimmed);
+    if (!hasFile) runWeb(trimmed);
     else setWebHits(null);
   };
 
@@ -573,6 +565,10 @@ function Home() {
 
   const saveWebPdf = async (hit: WebHit) => {
     if (hit.kind !== "pdf") return;
+    if (isStaticHost()) {
+      toast.message("Abre el PDF y guárdalo en la carpeta del teléfono.");
+      return;
+    }
     setSavingUrl(hit.url);
     try {
       const res = await fetchRemotePdf({ data: { url: hit.url } });
@@ -689,7 +685,7 @@ function Home() {
           webHits={webHits}
           webError={webError}
           webLoading={webLoading}
-          onWeb={() => void runWeb(query, true)}
+          onWeb={() => runWeb(query)}
           onOpenLocal={openLocal}
           brands={brands}
           onBrand={(b) => {
@@ -1088,11 +1084,14 @@ function SearchPane({
                 </p>
                 {h.snippet ? <p className="mt-1 text-sm text-muted">{h.snippet}</p> : null}
                 <div className="mt-3 flex gap-2">
-                  <Button size="sm" variant="secondary" asChild>
-                    <a href={h.url} target="_blank" rel="noreferrer">
-                      Abrir
-                    </a>
-                  </Button>
+                  <a
+                    href={h.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex h-9 items-center rounded-md border border-border bg-surface px-3 text-xs font-medium hover:bg-raised"
+                  >
+                    Abrir
+                  </a>
                   {h.kind === "pdf" ? (
                     <Button
                       size="sm"
@@ -1576,6 +1575,11 @@ function SparesPane({
     setLoading(true);
     setError(null);
     try {
+      if (isStaticHost()) {
+        setHits([]);
+        setError("Abre spareparts.faacgroup.com desde el enlace de arriba.");
+        return;
+      }
       const res = await searchFaacSpares({ data: { query: trimmed } });
       if (!res.ok) {
         setHits([]);
@@ -1588,7 +1592,7 @@ function SparesPane({
       }
     } catch (e) {
       setHits([]);
-      setError(e instanceof Error ? e.message : "No se pudo consultar FAAC");
+      setError(friendlyServerError(e, "No se pudo consultar FAAC"));
     } finally {
       setLoading(false);
     }
@@ -1785,6 +1789,7 @@ function PedidoPane() {
     if (loaded.current) return;
     loaded.current = true;
     void (async () => {
+      if (isStaticHost()) return;
       try {
         const res = await fetchPedidoKeep();
         if (!res.ok) {
@@ -1795,7 +1800,7 @@ function PedidoPane() {
         persist(next);
         setStatus(`Nota Keep: ${res.items.length} línea${res.items.length === 1 ? "" : "s"}`);
       } catch (e) {
-        setStatus(e instanceof Error ? e.message : "No se pudo leer Keep");
+        setStatus(friendlyServerError(e, "Keep no está en esta copia."));
       }
     })();
   }, []);
@@ -2058,6 +2063,13 @@ function CodesPane() {
     setLoading(true);
     setStatus(null);
     try {
+      if (isStaticHost()) {
+        const local = loadLocalCodeRows();
+        setRows(local.rows);
+        setHeaders(local.headers);
+        setStatus(local.rows.length ? `Teléfono (${local.rows.length})` : "Sin datos remotos en esta copia. Añade un Excel.");
+        return;
+      }
       const res = await fetchCodeTables();
       const local = loadLocalCodeRows();
       const allRows = [...local.rows, ...res.tables.flatMap((t) => t.rows)];
@@ -2087,7 +2099,7 @@ function CodesPane() {
       } else {
         setRows([]);
         setHeaders([]);
-        setStatus(e instanceof Error ? e.message : "No se pudieron cargar las bases");
+        setStatus(friendlyServerError(e, "Sin Drive. Añade un Excel en Archivos."));
       }
     } finally {
       setLoading(false);
@@ -2241,6 +2253,7 @@ function AlbaranPane() {
     if (analyzed.current) return;
     analyzed.current = true;
     void (async () => {
+      if (isStaticHost()) return;
       try {
         const res = await analyzeAlbaranTemplate();
         setNextNum(adoptDocLastNumber(res.lastFromDoc));

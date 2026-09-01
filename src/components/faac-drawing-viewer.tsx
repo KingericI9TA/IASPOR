@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { fetchFaacDrawing, type DrawingPart } from "@/lib/faac-spares";
+import { isStaticHost } from "@/lib/static-host";
 import { formatPedidoText } from "@/lib/faac-pedido";
 import { copyToClipboard } from "@/lib/utils";
 
@@ -53,6 +54,10 @@ export function FaacDrawingViewer({
       setStatus("Abriendo esquema…");
       setPicked(null);
       setSvg(null);
+      if (isStaticHost()) {
+        setStatus("El despiece online no está en esta copia. Ábrelo en spareparts.faacgroup.com.");
+        return;
+      }
       try {
         const res = await fetchFaacDrawing({ data: { drawingId } });
         if (cancelled) return;

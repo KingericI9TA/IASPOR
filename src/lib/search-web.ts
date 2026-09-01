@@ -1,14 +1,14 @@
 import { createServerFn } from "@tanstack/react-start";
 import { BRANDS, detectBrandFromText, type Brand } from "./brands";
-import { googleHits, googlePdfQuery, googleSimpleQuery } from "./google-search";
+import {
+  googlePdfQuery,
+  googleSimpleQuery,
+  webEngineHits,
+  type WebHit,
+} from "./google-search";
 
-export type WebHit = {
-  title: string;
-  url: string;
-  brand?: string;
-  kind: "pdf" | "page";
-  snippet: string;
-};
+export type { WebHit } from "./google-search";
+export { webEngineHits } from "./google-search";
 
 type Source = { type?: string; url?: string; title?: string };
 type OutputItem = {
@@ -34,7 +34,7 @@ function hostOf(url: string) {
 function cleanUrl(url: string) {
   const raw = url
     .trim()
-    .replace(/&amp;/gi, "&")
+    .replace(/&/gi, "&")
     .replace(/\\u0026/g, "&")
     .replace(/\\u002f/gi, "/")
     .replace(/["'<>].*$/, "");
@@ -165,26 +165,6 @@ function harvestAll(output: OutputItem[] | undefined, raw: string, brand?: Brand
   return hits;
 }
 
-function bingSearchUrl(query: string) {
-  return `https://www.bing.com/search?q=${encodeURIComponent(googleSimpleQuery(query))}&setlang=es`;
-}
-
-function engineHits(query: string): WebHit[] {
-  return [
-    ...googleHits(query),
-    {
-      title: `Bing · ${query}`,
-      url: bingSearchUrl(query),
-      kind: "page",
-      snippet: "Búsqueda simple en Bing.",
-    },
-  ];
-}
-
-export function webEngineHits(query: string): WebHit[] {
-  return engineHits(query);
-}
-
 function rankHits(hits: WebHit[], brand?: Brand, query = "") {
   const seen = new Set<string>();
   const unique: WebHit[] = [];
@@ -226,7 +206,7 @@ export const searchWebManuals = createServerFn({ method: "POST" })
     return { query };
   })
   .handler(async ({ data }) => {
-    const fallback = engineHits(data.query);
+    const fallback = webEngineHits(data.query);
     const apiKey = process.env.XAI_API_KEY;
     if (!apiKey) {
       return { ok: true as const, hits: fallback };

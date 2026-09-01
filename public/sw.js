@@ -1,9 +1,17 @@
+const BUILD = "iaspor-google-client-20260901";
+
 self.addEventListener("install", (event) => {
   event.waitUntil(self.skipWaiting());
 });
 
 self.addEventListener("activate", (event) => {
-  event.waitUntil(self.clients.claim());
+  event.waitUntil(
+    (async () => {
+      const keys = await caches.keys();
+      await Promise.all(keys.map((k) => caches.delete(k)));
+      await self.clients.claim();
+    })(),
+  );
 });
 
 self.addEventListener("notificationclick", (event) => {
@@ -23,3 +31,5 @@ self.addEventListener("notificationclick", (event) => {
     }),
   );
 });
+
+void BUILD;

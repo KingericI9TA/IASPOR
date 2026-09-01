@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { askGrok } from "@/lib/grok-consulta";
 import { copyToClipboard } from "@/lib/utils";
+import { friendlyServerError, isStaticHost } from "@/lib/static-host";
 
 export function GrokConsulta({ seed = "" }: { seed?: string }) {
   const [open, setOpen] = useState(false);
@@ -20,6 +21,11 @@ export function GrokConsulta({ seed = "" }: { seed?: string }) {
     }
     setBusy(true);
     setAnswer("");
+    if (isStaticHost()) {
+      toast.message("Grok no está en esta copia. Usa Buscar → Google.");
+      setBusy(false);
+      return;
+    }
     try {
       const res = await askGrok({ data: { question, context: seed } });
       if (!res.ok) {
@@ -28,7 +34,7 @@ export function GrokConsulta({ seed = "" }: { seed?: string }) {
       }
       setAnswer(res.answer);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "No se pudo consultar");
+      toast.error(friendlyServerError(e, "No se pudo consultar"));
     } finally {
       setBusy(false);
     }

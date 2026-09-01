@@ -1,4 +1,12 @@
-/** Consultas para Google: simple primero, PDF después. */
+/** Consultas para Google: simple primero, PDF después. Sin servidor. */
+
+export type WebHit = {
+  title: string;
+  url: string;
+  brand?: string;
+  kind: "pdf" | "page";
+  snippet: string;
+};
 
 function cleanQuery(query: string) {
   return query.replace(/\s+/g, " ").trim();
@@ -46,13 +54,11 @@ export function googleImagesUrl(query: string) {
   return href(googleImagesQuery(query), { tbm: "isch" });
 }
 
-export function googleHits(query: string): {
-  title: string;
-  url: string;
-  kind: "page";
-  snippet: string;
-  brand?: string;
-}[] {
+export function bingSearchUrl(query: string) {
+  return `https://www.bing.com/search?q=${encodeURIComponent(googleSimpleQuery(query))}&setlang=es`;
+}
+
+export function googleHits(query: string): WebHit[] {
   const q = cleanQuery(query);
   return [
     {
@@ -72,6 +78,20 @@ export function googleHits(query: string): {
       url: googleImagesUrl(q),
       kind: "page",
       snippet: "Google Imágenes.",
+    },
+  ];
+}
+
+export function webEngineHits(query: string): WebHit[] {
+  const q = cleanQuery(query);
+  if (q.length < 2) return [];
+  return [
+    ...googleHits(q),
+    {
+      title: `Bing · ${q}`,
+      url: bingSearchUrl(q),
+      kind: "page",
+      snippet: "Búsqueda simple en Bing.",
     },
   ];
 }

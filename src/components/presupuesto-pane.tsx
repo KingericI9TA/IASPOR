@@ -23,6 +23,7 @@ import {
   type TipoPreview,
 } from "@/lib/presupuesto";
 import { cn } from "@/lib/utils";
+import { isStaticHost } from "@/lib/static-host";
 
 type Phase = "boot" | "cliente" | "concepto" | "tipo" | "preview" | "modify" | "ready";
 
@@ -64,6 +65,10 @@ export function PresupuestoPane() {
         setFiles(cached);
         setOffline(true);
         setPhase("cliente");
+      }
+      if (isStaticHost()) {
+        if (!cached.length) setPhase("cliente");
+        return;
       }
       try {
         const res = await inspectPresupuestoFolder();

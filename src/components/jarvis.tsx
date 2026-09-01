@@ -13,8 +13,9 @@ export function JarvisConsulta({ seed = "" }: { seed?: string }) {
   const [answer, setAnswer] = useState("");
   const [busy, setBusy] = useState(false);
 
+  const question = q.trim() || seed.trim();
+
   const ask = async () => {
-    const question = q.trim() || seed.trim();
     if (question.length < 2) {
       toast.message("Escribe qué quieres consultar");
       return;
@@ -22,7 +23,7 @@ export function JarvisConsulta({ seed = "" }: { seed?: string }) {
     setBusy(true);
     setAnswer("");
     try {
-      const res = await queryJarvis(question, seed);
+      const res = await queryJarvis(question);
       if (res.ok) setAnswer(res.answer);
       else toast.error(res.error);
     } catch {
@@ -78,34 +79,33 @@ export function JarvisConsulta({ seed = "" }: { seed?: string }) {
                 Preguntar
               </Button>
             </form>
+            <a
+              className="inline-flex h-10 items-center justify-center rounded-md bg-primary px-3 text-sm font-semibold text-primary-foreground"
+              href={jarvisWebUrl(question || "IASPOR puertas automáticas")}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Abrir Grok
+            </a>
             {busy ? <p className="text-sm text-muted">Jarvis está pensando…</p> : null}
             {answer ? (
               <div className="min-h-0 flex-1 overflow-auto rounded-md hud p-4">
                 <p className="whitespace-pre-wrap text-sm leading-relaxed text-fg">{answer}</p>
-                <div className="mt-4 grid grid-cols-2 gap-2">
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    onClick={async () => {
-                      const ok = await copyToClipboard(answer);
-                      toast[ok ? "success" : "error"](ok ? "Copiado" : "No se pudo copiar");
-                    }}
-                  >
-                    Copiar
-                  </Button>
-                  <a
-                    className="inline-flex h-10 items-center justify-center rounded-md bg-primary px-3 text-sm font-semibold text-primary-foreground"
-                    href={jarvisWebUrl(q.trim() || seed.trim())}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    Abrir Grok.com
-                  </a>
-                </div>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="mt-4"
+                  onClick={async () => {
+                    const ok = await copyToClipboard(answer);
+                    toast[ok ? "success" : "error"](ok ? "Copiado" : "No se pudo copiar");
+                  }}
+                >
+                  Copiar
+                </Button>
               </div>
             ) : !busy ? (
               <p className="text-sm leading-relaxed text-muted">
-                Pregunta por un motor, central, código de error o recambio. Si vienes de Buscar, ya trae ese modelo.
+                Pregunta a Grok por un motor, error o recambio. No usa tus PDFs. Si vienes de Buscar, ya trae ese modelo.
               </p>
             ) : null}
           </div>

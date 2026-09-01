@@ -39,8 +39,20 @@ jobs:
           export ANDROID_SDK_ROOT="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
           export ANDROID_HOME="$ANDROID_SDK_ROOT"
           echo "SDK=$ANDROID_SDK_ROOT JAVA=$JAVA_HOME"
-          ls "$ANDROID_SDK_ROOT/platforms" || true
-          ls "$ANDROID_SDK_ROOT/build-tools" || true
+          ls "$ANDROID_SDK_ROOT/cmdline-tools" || true
+          if [ ! -e "$ANDROID_SDK_ROOT/cmdline-tools/latest" ]; then
+            ver=$(ls -d "$ANDROID_SDK_ROOT/cmdline-tools"/[0-9]* 2>/dev/null | head -1)
+            if [ -n "$ver" ]; then
+              ln -sfn "$(basename "$ver")" "$ANDROID_SDK_ROOT/cmdline-tools/latest" \
+                || { mkdir -p "$HOME/android-sdk/cmdline-tools"
+                     cp -a "$ANDROID_SDK_ROOT/." "$HOME/android-sdk/"
+                     ln -sfn "$(basename "$ver")" "$HOME/android-sdk/cmdline-tools/latest"
+                     export ANDROID_SDK_ROOT="$HOME/android-sdk"
+                     export ANDROID_HOME="$ANDROID_SDK_ROOT"
+                   }
+            fi
+          fi
+          ls -la "$ANDROID_SDK_ROOT/cmdline-tools"
           mkdir -p "$HOME/.bubblewrap" android-twa
           printf '{"jdkPath":"%s","androidSdkPath":"%s"}\n' "$JAVA_HOME" "$ANDROID_SDK_ROOT" > "$HOME/.bubblewrap/config.json"
           cp android/twa-manifest.json android-twa/twa-manifest.json

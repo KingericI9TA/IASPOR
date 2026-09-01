@@ -6,6 +6,7 @@ on:
     paths:
       - android/**
       - public/icon-512.png
+      - public/manifest.webmanifest
       - .github/workflows/apk.yml
   workflow_dispatch:
 
@@ -25,13 +26,9 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
-      - uses: android-actions/setup-android@v3
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - name: SDK packages
-        run: |
-          sdkmanager --install "platform-tools" "platforms;android-35" "build-tools;35.0.0"
       - name: Bubblewrap
         run: npm install --global @bubblewrap/cli
       - name: Configurar y firmar
@@ -39,6 +36,11 @@ jobs:
           BUBBLEWRAP_KEYSTORE_PASSWORD: iaspor-taller
           BUBBLEWRAP_KEY_PASSWORD: iaspor-taller
         run: |
+          export ANDROID_SDK_ROOT="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          export ANDROID_HOME="$ANDROID_SDK_ROOT"
+          echo "SDK=$ANDROID_SDK_ROOT JAVA=$JAVA_HOME"
+          ls "$ANDROID_SDK_ROOT/platforms" || true
+          ls "$ANDROID_SDK_ROOT/build-tools" || true
           mkdir -p "$HOME/.bubblewrap" android-twa
           printf '{"jdkPath":"%s","androidSdkPath":"%s"}\n' "$JAVA_HOME" "$ANDROID_SDK_ROOT" > "$HOME/.bubblewrap/config.json"
           cp android/twa-manifest.json android-twa/twa-manifest.json

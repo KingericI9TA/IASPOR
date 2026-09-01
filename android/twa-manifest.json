@@ -1,0 +1,39 @@
+{
+  "packageId": "es.aspor.iaspor",
+  "host": "kingericI9ta.github.io",
+  "name": "IASPOR",
+  "launcherName": "IASPOR",
+  "display": "standalone",
+  "themeColor": "#020617",
+  "themeColorDark": "#020617",
+  "navigationColor": "#020617",
+  "navigationColorDark": "#020617",
+  "navigationDividerColor": "#020617",
+  "navigationDividerColorDark": "#020617",
+  "backgroundColor": "#020617",
+  "enableNotifications": true,
+  "startUrl": "/IASPOR/",
+  "iconUrl": "http://127.0.0.1:8765/icon-512.png",
+  "maskableIconUrl": "http://127.0.0.1:8765/icon-512.png",
+  "splashScreenFadeOutDuration": 300,
+  "signingKey": {
+    "path": "./android-release.keystore",
+    "alias": "iaspor"
+  },
+  "appVersionName": "1.0.0",
+  "appVersionCode": 1,
+  "shortcuts": [],
+  "generatorApp": "bubblewrap-cli",
+  "webManifestUrl": "https://kingericI9ta.github.io/IASPOR/__grok/manifest.webmanifest",
+  "fallbackType": "customtabs",
+  "features": {},
+  "alphaDependencies": {
+    "enabled": false
+  },
+  "enableSiteSettingsShortcut": true,
+  "isChromeOSOnly": false,
+  "isMetaQuest": false,
+  "fullScopeUrl": "https://kingericI9ta.github.io/IASPOR/",
+  "minSdkVersion": 24,
+  "orientation": "default"
+}

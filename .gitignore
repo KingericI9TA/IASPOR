@@ -14,4 +14,6 @@ attachments
 AGENTS.md
 AGENTS.project.md
 .project_id
-.node_modules.lock
+android-twa
+*.keystore
+*.jks

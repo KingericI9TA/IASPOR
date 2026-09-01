@@ -1,0 +1,66 @@
+name: APK
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - android/**
+      - public/icon-512.png
+      - .github/workflows/apk.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apk
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@v3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: SDK packages
+        run: |
+          sdkmanager --install "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+      - name: Bubblewrap
+        run: npm install --global @bubblewrap/cli
+      - name: Configurar y firmar
+        env:
+          BUBBLEWRAP_KEYSTORE_PASSWORD: iaspor-taller
+          BUBBLEWRAP_KEY_PASSWORD: iaspor-taller
+        run: |
+          mkdir -p "$HOME/.bubblewrap" android-twa
+          printf '{"jdkPath":"%s","androidSdkPath":"%s"}\n' "$JAVA_HOME" "$ANDROID_SDK_ROOT" > "$HOME/.bubblewrap/config.json"
+          cp android/twa-manifest.json android-twa/twa-manifest.json
+          cd android-twa
+          keytool -genkeypair -keystore android-release.keystore -alias iaspor -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass "$BUBBLEWRAP_KEYSTORE_PASSWORD" -keypass "$BUBBLEWRAP_KEY_PASSWORD" \
+            -dname "CN=IASPOR, OU=ASPOR, O=ASPOR Y COSTALES S.L., C=ES"
+          python3 -m http.server 8765 --directory ../public &
+          sleep 1
+          yes "" | bubblewrap update --skipVersionUpgrade
+          bubblewrap build --skipPwaValidation
+          cp app-release-signed.apk ../IASPOR.apk
+          ls -lh ../IASPOR.apk
+      - name: Publicar en Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="apk-1"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" IASPOR.apk --clobber
+          else
+            gh release create "$tag" IASPOR.apk \
+              --title "IASPOR para el teléfono" \
+              --notes "Instálalo en el teléfono. Luego abre IASPOR y en Archivos elige la carpeta de esquemas, igual que hasta ahora."
+          fi

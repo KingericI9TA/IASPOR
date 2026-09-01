@@ -4,13 +4,13 @@ App de taller para esquemas, catálogos, albaranes y pedidos FAAC.
 
 ## Teléfono
 
-Cuando GitHub Pages esté publicado:
+1. Descarga **IASPOR.apk** desde [Releases](https://github.com/KingericI9TA/IASPOR/releases).
+2. Ábrelo e instálalo (puede pedir permiso para “orígenes desconocidos”).
+3. Entra en IASPOR → **Archivos** → **Elegir carpeta** (la misma de esquemas).
 
-**https://kingericI9ta.github.io/IASPOR/**
+Ahí se guardan pedido, número de albarán y los PDF de albaranes.
 
-En Chrome: menú → **Añadir a la pantalla de inicio**.
-
-Luego en **Archivos** elige la carpeta de esquemas del teléfono. Ahí se guardan pedido, número de albarán y los PDF de albaranes.
+Web de respaldo: **https://kingericI9ta.github.io/IASPOR/**
 
 ## Qué hace
 

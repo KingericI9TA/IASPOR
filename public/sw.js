@@ -1,4 +1,4 @@
-const BUILD = "iaspor-google-client-20260901";
+const BUILD = "iaspor-blank-fix-20260901b";
 
 self.addEventListener("install", (event) => {
   event.waitUntil(self.skipWaiting());

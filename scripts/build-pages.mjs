@@ -182,7 +182,6 @@ html = html.replace(
   /<head>/i,
   `<head>\n<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate"/>\n<meta name="iaspor-build" content="${buildId}"/>`,
 );
-html = html.replace(/(src="[^"]+\.js)"/g, `$1?v=${buildId}"`);
 
 publishHtml(html);
 writeManifest();

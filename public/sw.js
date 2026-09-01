@@ -1,4 +1,4 @@
-const BUILD = "iaspor-blank-fix-20260901b";
+const BUILD = "iaspor-jarvis-20260901";
 
 self.addEventListener("install", (event) => {
   event.waitUntil(self.skipWaiting());
@@ -12,6 +12,14 @@ self.addEventListener("activate", (event) => {
       await self.clients.claim();
     })(),
   );
+});
+
+self.addEventListener("fetch", (event) => {
+  const req = event.request;
+  if (req.mode === "navigate") {
+    event.respondWith(fetch(req, { cache: "reload" }));
+    return;
+  }
 });
 
 self.addEventListener("notificationclick", (event) => {

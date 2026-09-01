@@ -44,9 +44,7 @@ export function nextReminderAt(now = new Date()) {
 export async function registerPedidoSw() {
   if (!("serviceWorker" in navigator)) return null;
   try {
-    const existing = await navigator.serviceWorker.getRegistration();
-    if (existing) return existing;
-    return await navigator.serviceWorker.register(publicUrl("sw.js"));
+    return await navigator.serviceWorker.register(`${publicUrl("sw.js")}?v=iaspor-jarvis-20260901`);
   } catch {
     return null;
   }

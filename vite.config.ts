@@ -171,13 +171,14 @@ export default defineConfig(({ command, isPreview }) => {
       tailwindcss(),
       tanstackStart(pages ? { spa: { enabled: true } } : undefined),
       ...(command === "build" || isPreview
-        ? [
-            nitro({
-              preset: process.env.NITRO_PRESET || "vercel",
-              // Vercel/Grok keep serverDir: "./server" (PWA install page).
-              serverDir: pages ? "./server-pages" : "./server",
-            }),
-          ]
+        ? pages
+          ? []
+          : [
+              nitro({
+                preset: process.env.NITRO_PRESET || "vercel",
+                serverDir: "./server",
+              }),
+            ]
         : []),
       viteReact(),
     ],

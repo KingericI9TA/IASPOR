@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import {
   copyFileSync,
+  cpSync,
   existsSync,
   mkdirSync,
   readdirSync,
@@ -145,10 +146,25 @@ function publishHtml(html) {
 
 const viteCode = await spawnVite();
 console.log(`[build-pages] vite exit ${viteCode}`);
+if (viteCode !== 0) {
+  console.error("[build-pages] vite falló; no se publica una copia vieja");
+  process.exit(1);
+}
 mkdirSync(outDir, { recursive: true });
+const clientDir = join(root, "dist/client");
+if (existsSync(clientDir)) {
+  cpSync(clientDir, outDir, { recursive: true });
+}
+if (existsSync(join(root, "public/sw.js"))) {
+  copyFileSync(join(root, "public/sw.js"), join(outDir, "sw.js"));
+}
 
 let html = "";
-for (const candidate of [join(outDir, "index.html"), join(outDir, "_shell.html")]) {
+for (const candidate of [
+  join(outDir, "_shell.html"),
+  join(clientDir, "_shell.html"),
+  join(outDir, "index.html"),
+]) {
   if (isUsefulHtml(candidate)) {
     html = readFileSync(candidate, "utf8");
     console.log(`[build-pages] usando ${candidate}`);
@@ -182,9 +198,23 @@ html = html.replace(
   /<head>/i,
   `<head>\n<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate"/>\n<meta name="iaspor-build" content="${buildId}"/>`,
 );
+if (!html.includes("serviceWorker.register")) {
+  html = html.replace(
+    /<\/body>/i,
+    `<script>if("serviceWorker"in navigator){navigator.serviceWorker.register("${withBase("sw.js")}?v=${buildId}").catch(function(){})}</script></body>`,
+  );
+}
 
 publishHtml(html);
 writeManifest();
+
+if (existsSync(join(outDir, "sw.js"))) {
+  const sw = readFileSync(join(outDir, "sw.js"), "utf8").replace(
+    /const BUILD = "[^"]*"/,
+    `const BUILD = "${buildId}"`,
+  );
+  writeFileSync(join(outDir, "sw.js"), sw);
+}
 
 if (process.env.NITRO_PRESET === "github_pages" && process.env.SKIP_FAAC_SNAPSHOT !== "1") {
   try {

@@ -127,7 +127,7 @@ import {
   type PedidoItem,
   type PedidoSent,
 } from "@/lib/faac-pedido";
-import { armPedidoReminder, askPedidoNotify } from "@/lib/pedido-remind";
+import { armPedidoReminder, askPedidoNotify, registerPedidoSw } from "@/lib/pedido-remind";
 import { armDailyBackup, runDailyBackupNow } from "@/lib/daily-backup";
 import { downloadTallerZip, importTallerZip } from "@/lib/backup";
 import { syncRemoteCatalog } from "@/lib/sync-catalog";
@@ -264,6 +264,7 @@ function Home() {
     setTaller(loadTallerFolder());
     armPedidoReminder();
     armDailyBackup();
+    void registerPedidoSw();
     void requestDurableStorage();
     setCanFolder(true);
     const onVis = () => {

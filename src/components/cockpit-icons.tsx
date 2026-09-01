@@ -101,6 +101,22 @@ export function IconCodigos({ className }: IconProps) {
   );
 }
 
+export function IconJarvis({ className }: IconProps) {
+  return (
+    <Plate className={className} tone="amber">
+      <path
+        d="M7.2 14.2 C7.2 8.6 8.6 6.2 12 6.2 C15.4 6.2 16.8 8.6 16.8 14.2 C16.8 16.6 15.2 18.4 12 18.4 C8.8 18.4 7.2 16.6 7.2 14.2 Z"
+        fill="currentColor"
+      />
+      <path d="M6.4 12.2 C6.8 10.4 8 9.2 9.2 9.6 L8.4 13.4 C7.4 13.6 6.6 13.2 6.4 12.2 Z" fill="currentColor" opacity="0.85" />
+      <path d="M17.6 12.2 C17.2 10.4 16 9.2 14.8 9.6 L15.6 13.4 C16.6 13.6 17.4 13.2 17.6 12.2 Z" fill="currentColor" opacity="0.85" />
+      <rect x="7.6" y="10.15" width="8.8" height="3.1" rx="1.2" fill="#041018" />
+      <rect x="8.5" y="11.05" width="7" height="1.25" rx="0.6" fill="#3ec0ff" />
+      <path d="M10.2 16.6 H13.8" stroke="#041018" strokeWidth="1.2" strokeLinecap="square" />
+    </Plate>
+  );
+}
+
 export function IconAlbaran({ className }: IconProps) {
   return (
     <Plate className={className} tone="red">

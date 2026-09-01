@@ -1,38 +1,30 @@
 import { createServerFn } from "@tanstack/react-start";
 import { queryFaacSpares } from "@/lib/faac-spares";
 import { googlePdfUrl, googleSimpleUrl } from "@/lib/google-search";
+import { completeJarvis, JARVIS_GATE, type JarvisAskResult } from "@/lib/jarvis-core";
 import { listLibrary } from "@/lib/library";
 import { searchLocal } from "@/lib/search-local";
 import { isStaticHost } from "@/lib/static-host";
 
+export { completeJarvis, JARVIS_GATE, type JarvisAskResult } from "@/lib/jarvis-core";
+
 const LOCAL_KEY = "iaspor-xai-key";
-const SYSTEM =
-  "Eres el asistente de campo de IASPOR (ASPOR, Gijón), servicio técnico de puertas automáticas FAAC y otras marcas (Nice, Came, BFT, Aprimatic, Clemsa, CDVI…). Responde en español, breve y práctico: dip-switch, errores, recambios, compatibilidad, central, cableado. Sin markdown recargado. Si no estás seguro, dilo y sugiere el manual.";
 
-export type GrokAskResult =
-  | { ok: true; answer: string }
-  | { ok: false; error: string };
-
-export function grokWebUrl(question: string) {
+export function jarvisWebUrl(question: string) {
   return `https://grok.com/?q=${encodeURIComponent(question.slice(0, 400))}`;
 }
 
-export function loadLocalGrokKey() {
+function jarvisRemoteUrl() {
+  const fromEnv = (import.meta.env.VITE_JARVIS_URL as string | undefined)?.trim();
+  return fromEnv || "https://iaspor-jarvis.charmed-bistro.workers.dev";
+}
+
+export function loadLocalJarvisKey() {
   if (typeof window === "undefined") return "";
   try {
     return (localStorage.getItem(LOCAL_KEY) ?? "").trim();
   } catch {
     return "";
-  }
-}
-
-export function saveLocalGrokKey(key: string) {
-  try {
-    const v = key.trim();
-    if (v) localStorage.setItem(LOCAL_KEY, v);
-    else localStorage.removeItem(LOCAL_KEY);
-  } catch {
-    /* ignore */
   }
 }
 
@@ -54,14 +46,10 @@ function fieldTips(question: string) {
     );
   }
   if (/no abre|no sube|no arranca/.test(q)) {
-    tips.push(
-      "Si no abre: 230 V en la placa, fusible, desbloqueo mecánico, receptor/mando y final de apertura.",
-    );
+    tips.push("Si no abre: 230 V en la placa, fusible, desbloqueo mecánico, receptor/mando y final de apertura.");
   }
   if (/parpade|led|error|e\d|err/.test(q)) {
-    tips.push(
-      "Anota parpadeos del LED de la central (secuencia). En 746/740 suele ser fotocélulas, encoder o tope.",
-    );
+    tips.push("Anota parpadeos del LED de la central (secuencia). En 746/740 suele ser fotocélulas, encoder o tope.");
   }
   if (/fotoc[eé]l/.test(q)) {
     tips.push("Fotocélulas: limpia, alinea TX/RX, 24 V y puente temporal en la placa solo para diagnóstico.");
@@ -118,68 +106,58 @@ export async function consultaTaller(question: string, context = ""): Promise<st
   return lines.join("\n").slice(0, 4000);
 }
 
-export async function completeGrok(
-  apiKey: string,
-  question: string,
-  context = "",
-): Promise<GrokAskResult> {
-  try {
-    const res = await fetch("https://api.x.ai/v1/chat/completions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({
-        model: "grok-4.5",
-        temperature: 0.2,
-        max_tokens: 420,
-        messages: [
-          { role: "system", content: SYSTEM },
-          {
-            role: "user",
-            content: context ? `Contexto en la app: ${context}\n\nConsulta: ${question}` : question,
-          },
-        ],
-      }),
-      signal: AbortSignal.timeout(55_000),
-    });
-    if (!res.ok) return { ok: false, error: "Grok no respondió. Prueba otra vez." };
-    const body = (await res.json()) as { choices?: { message?: { content?: string } }[] };
-    const answer = body.choices?.[0]?.message?.content?.trim();
-    if (!answer) return { ok: false, error: "Respuesta vacía." };
-    return { ok: true, answer: answer.slice(0, 4000) };
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : "";
-    if (/abort|timeout/i.test(msg)) {
-      return { ok: false, error: "Grok tardó demasiado." };
-    }
-    return { ok: false, error: "Sin red." };
-  }
-}
-
-export const askGrok = createServerFn({ method: "POST" })
+export const askJarvisFn = createServerFn({ method: "POST" })
   .validator((input: { question: string; context?: string }) => {
     const question = input.question.trim().slice(0, 800);
     if (question.length < 2) throw new Error("Escribe una consulta");
     return { question, context: (input.context ?? "").trim().slice(0, 1500) };
   })
-  .handler(async ({ data }): Promise<GrokAskResult> => {
+  .handler(async ({ data }): Promise<JarvisAskResult> => {
     const apiKey = process.env.XAI_API_KEY;
-    if (!apiKey) return { ok: false, error: "Grok no está disponible en este momento." };
-    return completeGrok(apiKey, data.question, data.context);
+    if (!apiKey) return { ok: false, error: "Jarvis no está disponible en este momento." };
+    return completeJarvis(apiKey, data.question, data.context);
   });
 
-export async function queryGrok(question: string, context = ""): Promise<GrokAskResult> {
-  const localKey = loadLocalGrokKey();
+async function askJarvisHttp(url: string, question: string, context: string): Promise<JarvisAskResult | null> {
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-iaspor-gate": JARVIS_GATE },
+      body: JSON.stringify({ question, context }),
+      signal: AbortSignal.timeout(55_000),
+    });
+    if (!res.ok) return null;
+    const body = (await res.json()) as JarvisAskResult;
+    if (body && body.ok && body.answer) return body;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export async function queryJarvis(question: string, context = ""): Promise<JarvisAskResult> {
+  const remote = jarvisRemoteUrl();
+  const urls: string[] = [];
+  if (remote) urls.push(remote);
+  if (typeof window === "undefined" || !isStaticHost()) urls.push("/api/jarvis");
+
+  for (const url of urls) {
+    const hit = await askJarvisHttp(url, question, context);
+    if (hit?.ok) return hit;
+  }
+
+  const localKey = loadLocalJarvisKey();
   if (localKey) {
-    const direct = await completeGrok(localKey, question, context);
+    const direct = await completeJarvis(localKey, question, context);
     if (direct.ok) return direct;
   }
 
   if (typeof window === "undefined" || !isStaticHost()) {
     try {
-      const live = await askGrok({ data: { question, context } });
+      const live = await askJarvisFn({ data: { question, context } });
       if (live.ok) return live;
     } catch {
-      /* teléfono: sin servidor */
+      /* teléfono: sin servidor local */
     }
   }
 

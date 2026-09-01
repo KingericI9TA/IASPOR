@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as WidgetRouteImport } from './routes/widget'
+import { Route as ApiJarvisRouteImport } from './routes/api/jarvis'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -22,31 +23,40 @@ const WidgetRoute = WidgetRouteImport.update({
   path: '/widget',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiJarvisRoute = ApiJarvisRouteImport.update({
+  id: '/api/jarvis',
+  path: '/api/jarvis',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/widget': typeof WidgetRoute
+  '/api/jarvis': typeof ApiJarvisRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/widget': typeof WidgetRoute
+  '/api/jarvis': typeof ApiJarvisRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/widget': typeof WidgetRoute
+  '/api/jarvis': typeof ApiJarvisRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/widget'
+  fullPaths: '/' | '/widget' | '/api/jarvis'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/widget'
-  id: '__root__' | '/' | '/widget'
+  to: '/' | '/widget' | '/api/jarvis'
+  id: '__root__' | '/' | '/widget' | '/api/jarvis'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   WidgetRoute: typeof WidgetRoute
+  ApiJarvisRoute: typeof ApiJarvisRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -65,12 +75,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WidgetRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/jarvis': {
+      id: '/api/jarvis'
+      path: '/api/jarvis'
+      fullPath: '/api/jarvis'
+      preLoaderRoute: typeof ApiJarvisRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   WidgetRoute: WidgetRoute,
+  ApiJarvisRoute: ApiJarvisRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

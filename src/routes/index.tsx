@@ -31,7 +31,7 @@ import {
   IconWeb,
 } from "@/components/cockpit-icons";
 import { PresupuestoPane } from "@/components/presupuesto-pane";
-import { GrokConsulta } from "@/components/grok-consulta";
+import { JarvisConsulta } from "@/components/jarvis";
 import { FaacCatalogViewer } from "@/components/faac-catalog-viewer";
 import { FaacDrawingViewer } from "@/components/faac-drawing-viewer";
 import { BRANDS, bumpBrandUsage, detectBrandFromText, frequentBrands, type Brand } from "@/lib/brands";
@@ -602,7 +602,7 @@ function Home() {
           </span>
         </h1>
         <div className="flex items-center gap-2">
-          <GrokConsulta seed={query} />
+          <JarvisConsulta seed={query} />
           <button
             type="button"
             className="chip inline-flex h-10 min-h-10 items-center gap-1.5 px-3 text-[0.7rem]"

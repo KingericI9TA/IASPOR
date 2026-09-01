@@ -28,6 +28,7 @@ jobs:
         env:
           NITRO_PRESET: github_pages
           NITRO_APP_BASE_URL: ${{ github.event.repository.name == format('{0}.github.io', github.repository_owner) && '/' || format('/{0}/', github.event.repository.name) }}
+          VITE_JARVIS_URL: ${{ secrets.JARVIS_URL }}
         run: npm run build:pages
       - uses: actions/upload-pages-artifact@v3
         with:

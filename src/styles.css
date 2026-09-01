@@ -372,6 +372,10 @@
     pointer-events: auto;
   }
 
+  .faac-drawing {
+    touch-action: manipulation;
+  }
+
   .faac-drawing svg text {
     font-weight: 800 !important;
     stroke: #111 !important;

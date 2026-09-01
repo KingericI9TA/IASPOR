@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { isStaticHost } from "@/lib/static-host";
+import { publicUrl } from "@/lib/utils";
 
 const BASE = "https://spareparts.faacgroup.com/accessautomation/spareparts";
 export const FAAC_SPARES_HOME = `${BASE}/faac?lang=en-US`;
@@ -267,7 +268,14 @@ function extractDrawingSvg(html: string) {
       /\s(?:href|xlink:href|target|rel)\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi,
       "",
     );
-    return `<g data-pos="${pos}" class="faac-hotspot"${cleaned}>${inner}</g>`;
+    const padded = inner.replace(
+      /<rect\s+x="([^"]+)"\s+y="([^"]+)"\s+width="([^"]+)"\s+height="([^"]+)"/i,
+      (_r, x: string, y: string, w: string, h: string) => {
+        const pad = 7;
+        return `<rect x="${Number(x) - pad}" y="${Number(y) - pad}" width="${Number(w) + pad * 2}" height="${Number(h) + pad * 2}"`;
+      },
+    );
+    return `<g data-pos="${pos}" class="faac-hotspot"${cleaned}>${padded}</g>`;
   });
   return svg;
 }
@@ -360,12 +368,78 @@ export async function queryFaacSpares(query: string): Promise<SpareSearchResult>
 
 export async function loadFaacDrawing(drawingId: number): Promise<DrawingResult> {
   if (typeof window !== "undefined" && isStaticHost()) {
+    const bundled = await loadBundledDrawing(drawingId);
+    if (bundled) return bundled;
     return drawingWith(drawingId, browserGet);
   }
   try {
     return await fetchFaacDrawing({ data: { drawingId } });
   } catch {
+    const bundled = await loadBundledDrawing(drawingId);
+    if (bundled) return bundled;
     return drawingWith(drawingId, browserGet);
+  }
+}
+
+type DrawingIndex = Record<string, { title?: string }>;
+let drawingIndex: DrawingIndex | null = null;
+let drawingIndexTried = false;
+
+async function loadDrawingIndex(): Promise<DrawingIndex> {
+  if (drawingIndex) return drawingIndex;
+  if (drawingIndexTried) return {};
+  drawingIndexTried = true;
+  try {
+    const res = await fetch(publicUrl(`faac-drawings/index.json?v=${Date.now().toString(36)}`));
+    if (!res.ok) return {};
+    drawingIndex = (await res.json()) as DrawingIndex;
+    return drawingIndex ?? {};
+  } catch {
+    return {};
+  }
+}
+
+async function gunzipText(buf: ArrayBuffer) {
+  const bytes = new Uint8Array(buf);
+  const gzipped = bytes.length > 2 && bytes[0] === 0x1f && bytes[1] === 0x8b;
+  if (!gzipped) return new TextDecoder().decode(bytes);
+  if (typeof DecompressionStream === "undefined") {
+    throw new Error("Este teléfono no puede leer el esquema empaquetado.");
+  }
+  const stream = new Blob([buf]).stream().pipeThrough(new DecompressionStream("gzip"));
+  return await new Response(stream).text();
+}
+
+async function loadBundledDrawing(drawingId: number): Promise<DrawingResult | null> {
+  try {
+    const index = await loadDrawingIndex();
+    const meta = index[String(drawingId)];
+    if (!meta) return null;
+    const [svgRes, partsText] = await Promise.all([
+      fetch(publicUrl(`faac-drawings/${drawingId}.svg.gz`)),
+      browserGet(`${BASE}/parts/${drawingId}`).catch(() => ""),
+    ]);
+    if (!svgRes.ok) return null;
+    const raw = await gunzipText(await svgRes.arrayBuffer());
+    const svg = extractDrawingSvg(raw);
+    if (!svg) return null;
+    let parts: DrawingPart[] = [];
+    if (partsText) {
+      try {
+        parts = partsFromJson(parseJsonPayload(partsText));
+      } catch {
+        parts = [];
+      }
+    }
+    return {
+      ok: true,
+      title: meta.title || drawingTitle(raw),
+      svg,
+      parts,
+      url: drawingPageUrl(drawingId),
+    };
+  } catch {
+    return null;
   }
 }
 

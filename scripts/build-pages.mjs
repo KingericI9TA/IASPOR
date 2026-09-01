@@ -186,6 +186,15 @@ html = html.replace(
 publishHtml(html);
 writeManifest();
 
+if (process.env.NITRO_PRESET === "github_pages" && process.env.SKIP_FAAC_SNAPSHOT !== "1") {
+  try {
+    const { snapshotFaacDrawings } = await import("./snapshot-faac-drawings.mjs");
+    await snapshotFaacDrawings(outDir);
+  } catch (err) {
+    console.warn("[build-pages] despieces FAAC no empaquetados:", err);
+  }
+}
+
 if (!isUsefulHtml(join(outDir, "index.html"))) {
   console.error("[build-pages] index.html vacío");
   process.exit(1);

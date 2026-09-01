@@ -138,15 +138,25 @@ if (existsSync(join(root, "public/sw.js"))) {
   copyFileSync(join(root, "public/sw.js"), join(outDir, "sw.js"));
 }
 
-// SPA estático: el HTML prerenderizado no coincide con el cliente (React #418).
-const htmlShell = fallbackHtml();
-console.log("[build-pages] usando shell SPA");
-
-if (!/<script/i.test(htmlShell)) {
-  throw new Error("Falta el script del cliente en el HTML");
+let html = "";
+for (const candidate of [join(outDir, "_shell.html"), join(clientDir, "_shell.html")]) {
+  if (isUsefulHtml(candidate)) {
+    html = readFileSync(candidate, "utf8");
+    console.log("[build-pages] usando", candidate);
+    break;
+  }
 }
+if (!html) html = fallbackHtml();
 
-let html = htmlShell;
+if (!/<script/i.test(html)) {
+  const js = findAsset("index-", ".js");
+  if (js) {
+    html = html.replace(
+      /<\/body>/i,
+      `<script type="module" src="${withBase(`assets/${js}`)}"></script></body>`,
+    );
+  }
+}
 
 const buildId = Date.now().toString(36);
 html = html.replace(

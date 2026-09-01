@@ -1,0 +1,65 @@
+[
+  {
+    "brandId": "visiotech",
+    "title": "Soporte técnico Visiotech",
+    "model": "Support",
+    "kind": "manual",
+    "keywords": ["visiotech", "safire", "nivian", "soporte", "ficha"],
+    "hint": "Manuales, fichas y firmware de Safire, Nivian y X-Security.",
+    "url": "https://support.visiotechsecurity.com"
+  },
+  {
+    "brandId": "safire",
+    "title": "Catálogo Safire Visiotech",
+    "model": "Safire",
+    "kind": "manual",
+    "keywords": ["safire", "cctv", "videoportero", "nvr"],
+    "hint": "Fichas de producto Safire en Visiotech.",
+    "url": "https://www.visiotechsecurity.com"
+  },
+  {
+    "brandId": "faac",
+    "title": "Área de descargas FAAC",
+    "model": "Descargas",
+    "kind": "manual",
+    "keywords": ["faac", "manual", "descargas", "esquema"],
+    "hint": "Manuales y esquemas FAAC.",
+    "url": "https://www.faac.es"
+  },
+  {
+    "brandId": "nice",
+    "title": "Descargas Nice",
+    "model": "Descargas",
+    "kind": "manual",
+    "keywords": ["nice", "manual", "robus", "toona", "wingo"],
+    "hint": "Manuales Nice for You.",
+    "url": "https://www.niceforyou.com/es"
+  },
+  {
+    "brandId": "came",
+    "title": "Descargas CAME",
+    "model": "Descargas",
+    "kind": "manual",
+    "keywords": ["came", "manual", "bx", "frog", "ati"],
+    "hint": "Manuales y esquemas CAME.",
+    "url": "https://www.came.com/es"
+  },
+  {
+    "brandId": "bft",
+    "title": "Descargas BFT",
+    "model": "Descargas",
+    "kind": "manual",
+    "keywords": ["bft", "deimos", "phobos", "icaro"],
+    "hint": "Manuales BFT Automation.",
+    "url": "https://www.bft-automation.com/es-es"
+  },
+  {
+    "brandId": "cdvi",
+    "title": "Soporte CDVI",
+    "model": "Descargas",
+    "kind": "manual",
+    "keywords": ["cdvi", "digicode", "atrium", "galeo"],
+    "hint": "Manuales de control de acceso CDVI.",
+    "url": "https://www.cdvi.es"
+  }
+]

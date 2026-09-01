@@ -1,15 +1,11 @@
-import { createServerFn } from "@tanstack/react-start";
 import { BRANDS } from "./brands";
-import type { CatalogDoc, DocKind } from "./catalog";
-
-type OutputItem = {
-  type?: string;
-  content?: { type?: string; text?: string }[];
-};
+import { CATALOG, type CatalogDoc, type DocKind } from "./catalog";
+import { publicUrl } from "./utils";
 
 type RemoteDoc = {
   id?: string;
   brand?: string;
+  brandId?: string;
   title?: string;
   model?: string;
   kind?: string;
@@ -19,20 +15,31 @@ type RemoteDoc = {
 };
 
 const KINDS: DocKind[] = ["esquema", "manual", "receptor", "central", "kit"];
+const JINA = "https://r.jina.ai/";
 
-function outputText(body: { output?: OutputItem[]; output_text?: string }) {
-  if (typeof body.output_text === "string" && body.output_text.trim()) {
-    return body.output_text;
-  }
-  const chunks: string[] = [];
-  for (const item of body.output ?? []) {
-    if (item.type !== "message") continue;
-    for (const part of item.content ?? []) {
-      if (part.text) chunks.push(part.text);
-    }
-  }
-  return chunks.join("\n");
-}
+const HOMES: Record<string, string> = {
+  faac: "https://www.faac.es",
+  nice: "https://www.niceforyou.com/es",
+  came: "https://www.came.com/es",
+  bft: "https://www.bft-automation.com/es-es",
+  beninca: "https://www.beninca.com/es",
+  erreka: "https://www.erreka.com/es",
+  v2: "https://www.v2.es",
+  motorline: "https://www.motorline.pt",
+  pujol: "https://www.pujol.es",
+  clemsa: "https://www.clemsa.es",
+  cdvi: "https://www.cdvi.es",
+  aprimatic: "https://www.aprimatic.es",
+  visiotech: "https://www.visiotechsecurity.com",
+  safire: "https://www.visiotechsecurity.com",
+  nivian: "https://www.visiotechsecurity.com",
+};
+
+const LIVE_PAGES = [
+  { brandId: "visiotech", url: "https://support.visiotechsecurity.com" },
+  { brandId: "visiotech", url: "https://www.visiotechsecurity.com" },
+  { brandId: "faac", url: "https://www.faac.es" },
+];
 
 function slug(s: string) {
   return s
@@ -60,97 +67,121 @@ function resolveBrandId(name: string | undefined) {
   )?.id;
 }
 
-export const syncRemoteCatalog = createServerFn({ method: "POST" }).handler(async () => {
-  const apiKey = process.env.XAI_API_KEY;
-  if (!apiKey) {
-    return { ok: false as const, error: "Sincronización no disponible ahora." };
-  }
+function toDoc(item: RemoteDoc, fallbackBrand = "faac"): CatalogDoc | null {
+  const title = item.title?.trim();
+  if (!title) return null;
+  const brandId = item.brandId || resolveBrandId(item.brand) || fallbackBrand;
+  const model = (item.model ?? title).slice(0, 80);
+  const url = (item.url || HOMES[brandId] || "").slice(0, 400);
+  if (url && !/^https?:\/\//i.test(url) && !url.startsWith("/")) return null;
+  return {
+    id: item.id || `sync-${brandId}-${slug(model || title)}`,
+    brandId,
+    title: title.slice(0, 160),
+    model,
+    kind: mapKind(item.kind),
+    keywords: Array.isArray(item.keywords)
+      ? item.keywords.map((k) => String(k).slice(0, 40)).slice(0, 8)
+      : [model],
+    hint: (item.hint ?? "Ficha de catálogo.").slice(0, 220),
+    url: url || undefined,
+    synced: true,
+  };
+}
 
-  const brands = BRANDS.map((b) => b.name).join(", ");
-  const system = `Actualiza un catálogo técnico de manuales y esquemas.
-Fuentes prioritarias:
-- https://www.visiotechsecurity.com y https://support.visiotechsecurity.com (Safire, Nivian, X-Security)
-- páginas de descargas de: ${brands}
-Devuelve SOLO un JSON array (máx 12, sin markdown) con:
-{"brand":"Safire","title":"...","model":"...","kind":"manual|esquema|receptor|central|kit","keywords":["..."],"hint":"...","url":"https://..."}
-Cada url debe ser real. Máximo 2 búsquedas web y responde. Incluye Visiotech/Safire y 4-5 automatismos de puertas.`;
-
-  let res: Response;
-  try {
-    res = await fetch("https://api.x.ai/v1/responses", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      signal: AbortSignal.timeout(28_000),
-      body: JSON.stringify({
-        model: "grok-4.6",
-        temperature: 0,
-        max_output_tokens: 900,
-        tools: [{ type: "web_search" }],
-        input: [
-          { role: "system", content: system },
-          {
-            role: "user",
-            content:
-              "Sincroniza el catálogo ahora: fichas Visiotech/Safire y manuales recientes de FAAC, Nice, CAME, BFT, CDVI y el resto.",
-          },
-        ],
-      }),
-    });
-  } catch (e) {
-    const name = e instanceof Error ? e.name : "";
-    const msg = e instanceof Error ? e.message : "";
-    if (name === "TimeoutError" || name === "AbortError" || /abort|timeout/i.test(msg)) {
-      return { ok: false as const, error: "La sincronización tardó demasiado. Pulsa de nuevo más tarde." };
-    }
-    return { ok: false as const, error: "No se pudo conectar para sincronizar." };
-  }
-
-  if (!res.ok) {
-    return { ok: false as const, error: `Error de sincronización (${res.status})` };
-  }
-
-  const body = (await res.json()) as { output?: OutputItem[]; output_text?: string };
-  const raw = outputText(body);
-  const match = raw.match(/\[[\s\S]*\]/);
-  if (!match) {
-    return { ok: false as const, error: "No se pudo leer el catálogo remoto." };
-  }
-
-  let parsed: RemoteDoc[] = [];
-  try {
-    parsed = JSON.parse(match[0]) as RemoteDoc[];
-  } catch {
-    return { ok: false as const, error: "Respuesta de catálogo no válida." };
-  }
-
-  const docs: CatalogDoc[] = [];
-  for (const item of parsed) {
-    if (!item?.title || !item?.url || !/^https?:\/\//i.test(item.url)) continue;
-    const brandId = resolveBrandId(item.brand) ?? "visiotech";
-    const model = (item.model ?? item.title).slice(0, 80);
-    const id = `sync-${brandId}-${slug(model || item.title)}`;
-    docs.push({
-      id,
-      brandId,
-      title: item.title.slice(0, 160),
-      model,
-      kind: mapKind(item.kind),
-      keywords: Array.isArray(item.keywords)
-        ? item.keywords.map((k) => String(k).slice(0, 40)).slice(0, 8)
-        : [model],
-      hint: (item.hint ?? "Ficha sincronizada del catálogo web.").slice(0, 220),
-      url: item.url.slice(0, 400),
+function bundled(): CatalogDoc[] {
+  const extras: CatalogDoc[] = [
+    {
+      id: "sync-faac-catalogo-2025",
+      brandId: "faac",
+      title: "Catálogo general FAAC 2025",
+      model: "Catálogo 2025",
+      kind: "manual",
+      keywords: ["faac", "catalogo", "2025"],
+      hint: "Catálogo general FAAC incluido en IASPOR.",
+      url: publicUrl("catalogos/faac-2025.pdf"),
       synced: true,
-    });
-    if (docs.length >= 18) break;
+    },
+    {
+      id: "sync-aprimatic-catalogo-2026",
+      brandId: "aprimatic",
+      title: "Catálogo Aprimatic 2026",
+      model: "Catálogo 2026",
+      kind: "manual",
+      keywords: ["aprimatic", "catalogo", "2026"],
+      hint: "Catálogo Aprimatic incluido en IASPOR.",
+      url: publicUrl("catalogos/aprimatic-2026.pdf"),
+      synced: true,
+    },
+  ];
+  return [
+    ...CATALOG.map((d) => ({
+      ...d,
+      synced: true,
+      url: d.url || HOMES[d.brandId],
+    })),
+    ...extras,
+  ];
+}
+
+async function fetchJsonDocs(url: string): Promise<CatalogDoc[]> {
+  const res = await fetch(url, { cache: "no-store", signal: AbortSignal.timeout(8000) });
+  if (!res.ok) return [];
+  const data = (await res.json()) as RemoteDoc[] | { docs?: RemoteDoc[] };
+  const rows = Array.isArray(data) ? data : data.docs;
+  if (!Array.isArray(rows)) return [];
+  return rows.map((row) => toDoc(row)).filter((d): d is CatalogDoc => Boolean(d));
+}
+
+function parseMarkdownLinks(md: string, brandId: string): CatalogDoc[] {
+  const docs: CatalogDoc[] = [];
+  const re = /\[([^\]]{3,80})\]\((https?:\/\/[^)\s]+)\)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(md))) {
+    const title = m[1].replace(/\s+/g, " ").trim();
+    const url = m[2].split(" ")[0];
+    if (!/manual|ficha|datasheet|pdf|soporte|support|download|descarga/i.test(`${title} ${url}`)) {
+      continue;
+    }
+    const doc = toDoc({ title, url, brandId, kind: /esquema|wiring/i.test(title) ? "esquema" : "manual" }, brandId);
+    if (doc) docs.push(doc);
+    if (docs.length >= 10) break;
+  }
+  return docs;
+}
+
+async function pullLive(brandId: string, page: string): Promise<CatalogDoc[]> {
+  const res = await fetch(`${JINA}${page}`, { signal: AbortSignal.timeout(10000) });
+  if (!res.ok) return [];
+  const text = await res.text();
+  return parseMarkdownLinks(text, brandId);
+}
+
+export async function syncRemoteCatalog(): Promise<
+  { ok: true; docs: CatalogDoc[] } | { ok: false; error: string }
+> {
+  const byId = new Map<string, CatalogDoc>();
+  const add = (doc: CatalogDoc) => {
+    if (!byId.has(doc.id)) byId.set(doc.id, doc);
+  };
+
+  for (const doc of bundled()) add(doc);
+
+  try {
+    const packed = await fetchJsonDocs(`${publicUrl("catalogos/remote.json")}?t=${Date.now()}`);
+    packed.forEach(add);
+  } catch {
+    /* usa el catálogo incluido */
   }
 
-  if (docs.length === 0) {
-    return { ok: false as const, error: "El catálogo remoto no trajo fichas útiles." };
+  const live = await Promise.allSettled(
+    LIVE_PAGES.map((p) => pullLive(p.brandId, p.url)),
+  );
+  for (const result of live) {
+    if (result.status === "fulfilled") result.value.forEach(add);
   }
 
-  return { ok: true as const, docs };
-});
+  const docs = [...byId.values()].slice(0, 80);
+  if (!docs.length) return { ok: false, error: "No se pudo actualizar el catálogo." };
+  return { ok: true, docs };
+}

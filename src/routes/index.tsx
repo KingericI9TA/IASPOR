@@ -324,10 +324,6 @@ function Home() {
   };
 
   const runCatalogSync = useCallback(async () => {
-    if (isStaticHost()) {
-      toast.message("El catálogo remoto no está en esta copia. Usa los PDF de la carpeta.");
-      return;
-    }
     setSyncing(true);
     try {
       const res = await Promise.race([
@@ -369,7 +365,6 @@ function Home() {
   useEffect(() => {
     if (autoTried.current) return;
     autoTried.current = true;
-    if (isStaticHost()) return;
     const settings = loadSyncSettings();
     if (shouldAutoSync(settings)) void runCatalogSync();
   }, [runCatalogSync]);

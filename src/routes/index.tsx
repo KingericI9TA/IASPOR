@@ -41,11 +41,9 @@ import {
   adoptDocLastNumber,
   analyzeAlbaranTemplate,
   euro,
-  fiscalYearOf,
   issueAlbaran,
   loadAlbaranHistory,
   peekNextAlbaranNumber,
-  todayAlbaran,
   type AlbaranDraft,
   type AlbaranRecord,
 } from "@/lib/albaran";
@@ -2260,7 +2258,6 @@ function AlbaranPane() {
 
   const [draft, setDraft] = useState<AlbaranDraft>(empty);
   const [nextNum, setNextNum] = useState(peekNextAlbaranNumber);
-  const fecha = todayAlbaran();
   const [busy, setBusy] = useState(false);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [pdfFile, setPdfFile] = useState<File | null>(null);

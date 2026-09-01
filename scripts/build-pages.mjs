@@ -11,7 +11,6 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import { pathToFileURL } from "node:url";
 
 const root = process.cwd();
 const outDir = join(root, ".output/public");
@@ -71,26 +70,6 @@ ${css ? `<link rel="stylesheet" href="${withBase(`assets/${css}`)}"/>` : ""}
 </body>
 </html>
 `;
-}
-
-async function renderSsrHtml() {
-  const ssrPath = join(root, "node_modules/.nitro/vite/services/ssr/index.js");
-  if (!existsSync(ssrPath)) return "";
-  const mod = await import(pathToFileURL(ssrPath).href);
-  const server = mod.default;
-  if (!server?.fetch) return "";
-  const url = new URL(base, "https://kingericI9ta.github.io").href;
-  const res = await server.fetch(
-    new Request(url, {
-      headers: {
-        accept: "text/html",
-        "X-TSS_SHELL": "true",
-      },
-    }),
-  );
-  const html = await res.text();
-  console.log(`[build-pages] SSR ${res.status} ${html.length} bytes`);
-  return html;
 }
 
 function writeManifest() {
@@ -159,39 +138,15 @@ if (existsSync(join(root, "public/sw.js"))) {
   copyFileSync(join(root, "public/sw.js"), join(outDir, "sw.js"));
 }
 
-let html = "";
-for (const candidate of [
-  join(outDir, "_shell.html"),
-  join(clientDir, "_shell.html"),
-  join(outDir, "index.html"),
-]) {
-  if (isUsefulHtml(candidate)) {
-    html = readFileSync(candidate, "utf8");
-    console.log(`[build-pages] usando ${candidate}`);
-    break;
-  }
+// SPA estático: el HTML prerenderizado no coincide con el cliente (React #418).
+const htmlShell = fallbackHtml();
+console.log("[build-pages] usando shell SPA");
+
+if (!/<script/i.test(htmlShell)) {
+  throw new Error("Falta el script del cliente en el HTML");
 }
 
-if (!html) {
-  try {
-    const ssr = await renderSsrHtml();
-    if (ssr && /<html/i.test(ssr) && ssr.length > 200) html = ssr;
-  } catch (err) {
-    console.warn("[build-pages] SSR no disponible:", err);
-  }
-}
-
-if (!html) html = fallbackHtml();
-
-if (!/<script/i.test(html)) {
-  const js = findAsset("index-", ".js");
-  if (js) {
-    html = html.replace(
-      /<\/body>/i,
-      `<script type="module" src="${withBase(`assets/${js}`)}"></script></body>`,
-    );
-  }
-}
+let html = htmlShell;
 
 const buildId = Date.now().toString(36);
 html = html.replace(

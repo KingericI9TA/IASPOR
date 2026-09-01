@@ -60,7 +60,7 @@ export function JarvisConsulta({ seed = "" }: { seed?: string }) {
                 aria-label="Pregunta para Jarvis"
                 autoFocus
               />
-              <Button type="submit">Abrir Grok</Button>
+              <Button type="submit">Buscar</Button>
             </form>
           </div>
         </div>

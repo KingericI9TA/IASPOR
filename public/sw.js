@@ -1,4 +1,4 @@
-const BUILD = "iaspor-jarvis-20260901";
+const BUILD = "iaspor-dev";
 
 self.addEventListener("install", (event) => {
   event.waitUntil(self.skipWaiting());
@@ -10,16 +10,30 @@ self.addEventListener("activate", (event) => {
       const keys = await caches.keys();
       await Promise.all(keys.map((k) => caches.delete(k)));
       await self.clients.claim();
+      const windows = await self.clients.matchAll({ type: "window" });
+      for (const client of windows) {
+        client.postMessage({ type: "IASPOR_SW", build: BUILD });
+      }
     })(),
   );
 });
 
 self.addEventListener("fetch", (event) => {
   const req = event.request;
-  if (req.mode === "navigate") {
-    event.respondWith(fetch(req, { cache: "reload" }));
-    return;
-  }
+  if (req.method !== "GET") return;
+  const url = new URL(req.url);
+  if (url.origin !== self.location.origin) return;
+  if (url.pathname.endsWith("/sw.js")) return;
+  const path = url.pathname;
+  const fresh =
+    req.mode === "navigate" ||
+    path.endsWith(".js") ||
+    path.endsWith(".css") ||
+    path.endsWith(".json") ||
+    path.endsWith(".webmanifest") ||
+    path.endsWith(".html");
+  if (!fresh) return;
+  event.respondWith(fetch(new Request(req, { cache: "reload" })).catch(() => fetch(req)));
 });
 
 self.addEventListener("notificationclick", (event) => {

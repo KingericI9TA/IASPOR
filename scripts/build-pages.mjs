@@ -113,6 +113,41 @@ function writeManifest() {
   );
 }
 
+function updateBootScript(buildId) {
+  const base = withBase("");
+  return `<script>
+(function(){
+  var htmlBuild=${JSON.stringify(buildId)};
+  var flag="iaspor:reloaded-build";
+  var versionUrl=${JSON.stringify(`${base}version.json`)}+"?t="+Date.now();
+  fetch(versionUrl,{cache:"no-store"}).then(function(r){return r.json()}).then(function(v){
+    if(!v||!v.build||v.build===htmlBuild) return;
+    if(sessionStorage.getItem(flag)===v.build) return;
+    sessionStorage.setItem(flag,v.build);
+    var go=function(){
+      var u=new URL(${JSON.stringify(base)}, location.origin);
+      u.searchParams.set("v", v.build);
+      var tab=new URLSearchParams(location.search).get("tab");
+      if(tab) u.searchParams.set("tab", tab);
+      location.replace(u.pathname+u.search+location.hash);
+    };
+    var tasks=[];
+    if(navigator.serviceWorker){
+      tasks.push(navigator.serviceWorker.getRegistrations().then(function(rs){
+        return Promise.all(rs.map(function(r){return r.unregister();}));
+      }));
+    }
+    if(window.caches){
+      tasks.push(caches.keys().then(function(ks){
+        return Promise.all(ks.map(function(k){return caches.delete(k);}));
+      }));
+    }
+    Promise.all(tasks).then(go,go);
+  }).catch(function(){});
+})();
+</script>`;
+}
+
 function publishHtml(html) {
   mkdirSync(outDir, { recursive: true });
   const indexHtml = join(outDir, "index.html");
@@ -163,6 +198,7 @@ html = html.replace(
   /<head>/i,
   `<head>\n<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate"/>\n<meta name="iaspor-build" content="${buildId}"/>`,
 );
+html = html.replace(/<body[^>]*>/i, (open) => `${open}\n${updateBootScript(buildId)}`);
 if (!html.includes("serviceWorker.register")) {
   html = html.replace(
     /<\/body>/i,
@@ -172,6 +208,7 @@ if (!html.includes("serviceWorker.register")) {
 
 publishHtml(html);
 writeManifest();
+writeFileSync(join(outDir, "version.json"), JSON.stringify({ build: buildId, at: Date.now() }));
 
 if (existsSync(join(outDir, "sw.js"))) {
   const sw = readFileSync(join(outDir, "sw.js"), "utf8").replace(

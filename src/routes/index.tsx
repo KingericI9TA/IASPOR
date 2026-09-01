@@ -126,6 +126,7 @@ import {
   type PedidoSent,
 } from "@/lib/faac-pedido";
 import { armPedidoReminder, askPedidoNotify, registerPedidoSw } from "@/lib/pedido-remind";
+import { armAppUpdates } from "@/lib/app-update";
 import { armDailyBackup, runDailyBackupNow } from "@/lib/daily-backup";
 import { downloadTallerZip, importTallerZip } from "@/lib/backup";
 import { syncRemoteCatalog } from "@/lib/sync-catalog";
@@ -263,6 +264,7 @@ function Home() {
     armPedidoReminder();
     armDailyBackup();
     void registerPedidoSw();
+    armAppUpdates();
     void requestDurableStorage();
     setCanFolder(true);
     const onVis = () => {

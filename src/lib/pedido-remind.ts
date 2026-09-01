@@ -44,7 +44,9 @@ export function nextReminderAt(now = new Date()) {
 export async function registerPedidoSw() {
   if (!("serviceWorker" in navigator)) return null;
   try {
-    return await navigator.serviceWorker.register(`${publicUrl("sw.js")}?v=iaspor-jarvis-20260901`);
+    const v =
+      document.querySelector('meta[name="iaspor-build"]')?.getAttribute("content") || "dev";
+    return await navigator.serviceWorker.register(`${publicUrl("sw.js")}?v=${v}`);
   } catch {
     return null;
   }

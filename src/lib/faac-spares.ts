@@ -147,7 +147,9 @@ function faacError(e: unknown, fallback: string) {
   const msg = e instanceof Error ? e.message : "";
   if (/429|rate limit/i.test(msg)) return "FAAC ocupado. Prueba en unos segundos.";
   if (/abort|timeout/i.test(msg)) return "El catálogo tardó demasiado.";
-  if (/invariant failed|content-type/i.test(msg)) return fallback;
+  if (/invariant failed|content-type|failed to fetch|networkerror|load failed/i.test(msg)) {
+    return fallback;
+  }
   return msg || fallback;
 }
 
@@ -161,11 +163,13 @@ async function serverGet(url: string) {
 }
 
 async function browserGet(url: string) {
-  try {
-    const direct = await fetch(url, { signal: AbortSignal.timeout(8_000) });
-    if (direct.ok) return await direct.text();
-  } catch {
-    /* CORS en GitHub / APK */
+  if (!isStaticHost()) {
+    try {
+      const direct = await fetch(url, { signal: AbortSignal.timeout(4_000) });
+      if (direct.ok) return await direct.text();
+    } catch {
+      /* CORS */
+    }
   }
   const jsonLike = /searchJson|\/parts\//.test(url);
   const res = await fetch(`${JINA}${url}`, {

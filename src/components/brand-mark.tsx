@@ -25,7 +25,7 @@ export function BrandMark({
 
   return (
     <img
-      src={publicUrl("logo.jpg")}
+      src={publicUrl("icon.svg")}
       alt={APP_NAME}
       className={cn(
         "size-12 rounded-md object-cover ring-1 ring-primary/40",

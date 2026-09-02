@@ -6,6 +6,7 @@ on:
     paths:
       - android/**
       - public/icon-512.png
+      - public/icon.svg
       - public/manifest.webmanifest
       - .github/workflows/apk.yml
   workflow_dispatch:
@@ -29,6 +30,17 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+      - name: Icono IASPOR
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y imagemagick fonts-dejavu-core
+          convert -size 512x512 xc:'#020617' \
+            -font DejaVu-Sans-Bold -pointsize 108 -gravity center \
+            -fill '#0b4f8c' -annotate +0+10 'IASPOR' \
+            -fill '#1a9fff' -annotate +0+3 'IASPOR' \
+            -fill '#f0f6ff' -annotate +0-5 'IASPOR' \
+            public/icon-512.png
+          convert public/icon-512.png -resize 192x192 public/icon-192.png
       - name: Bubblewrap
         run: npm install --global @bubblewrap/cli
       - name: Configurar y firmar
@@ -53,7 +65,6 @@ jobs:
             fi
           fi
           ls -la "$ANDROID_SDK_ROOT/cmdline-tools"
-          # Bubblewrap espera $SDK/tools o $SDK/bin (SDK antiguo).
           if [ ! -e "$ANDROID_SDK_ROOT/tools" ] && [ ! -e "$ANDROID_SDK_ROOT/bin" ]; then
             ln -sfn cmdline-tools/latest "$ANDROID_SDK_ROOT/tools" \
               || ln -sfn "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" "$ANDROID_SDK_ROOT/bin" \

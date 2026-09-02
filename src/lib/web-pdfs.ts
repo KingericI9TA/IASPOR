@@ -97,10 +97,10 @@ function looksLikePdf(buf: ArrayBuffer) {
 
 export async function downloadPdfBytes(url: string): Promise<ArrayBuffer> {
   const clean = unwrap(url);
-  const sources = [clean, `https://proxy.corsfix.com/?${clean}`];
+  const sources = [clean, `https://proxy.cors.sh/${clean}`, `https://proxy.corsfix.com/?${clean}`];
 
   const pull = async (src: string) => {
-    const res = await fetch(src, { redirect: "follow", signal: AbortSignal.timeout(10_000) });
+    const res = await fetch(src, { redirect: "follow", signal: AbortSignal.timeout(12_000) });
     if (!res.ok) throw new Error(`No se pudo descargar (${res.status})`);
     const buf = await res.arrayBuffer();
     if (buf.byteLength > MAX_BYTES) throw new Error("PDF demasiado grande (máx. 8 MB).");

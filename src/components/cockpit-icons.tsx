@@ -103,16 +103,25 @@ export function IconCodigos({ className }: IconProps) {
 
 export function IconJarvis({ className }: IconProps) {
   return (
-    <Plate className={className} tone="amber">
+    <Plate className={className} tone="red">
       <path
-        d="M7.2 14.2 C7.2 8.6 8.6 6.2 12 6.2 C15.4 6.2 16.8 8.6 16.8 14.2 C16.8 16.6 15.2 18.4 12 18.4 C8.8 18.4 7.2 16.6 7.2 14.2 Z"
+        d="M12 5.85c2.95 0 5.2 1.2 5.45 3.95l.28 2.85-.78 2.35c-.4.95-1.25 1.85-2.35 2.4L12 18.85l-2.6-1.45c-1.1-.55-1.95-1.45-2.35-2.4l-.78-2.35.28-2.85C6.8 7.05 9.05 5.85 12 5.85Z"
         fill="currentColor"
       />
-      <path d="M6.4 12.2 C6.8 10.4 8 9.2 9.2 9.6 L8.4 13.4 C7.4 13.6 6.6 13.2 6.4 12.2 Z" fill="currentColor" opacity="0.85" />
-      <path d="M17.6 12.2 C17.2 10.4 16 9.2 14.8 9.6 L15.6 13.4 C16.6 13.6 17.4 13.2 17.6 12.2 Z" fill="currentColor" opacity="0.85" />
-      <rect x="7.6" y="10.15" width="8.8" height="3.1" rx="1.2" fill="#041018" />
-      <rect x="8.5" y="11.05" width="7" height="1.25" rx="0.6" fill="#3ec0ff" />
-      <path d="M10.2 16.6 H13.8" stroke="#041018" strokeWidth="1.2" strokeLinecap="square" />
+      <path
+        d="M8.2 9.2c.6-1.55 1.9-2.4 3.8-2.4s3.2.85 3.8 2.4c.18.5.28 1.15.32 1.75H7.88c.04-.6.14-1.25.32-1.75Z"
+        fill="#ffcc4a"
+      />
+      <path
+        d="M8.05 11.55 7.15 13.5c.5 1.2 1.5 2.05 2.65 2.55.7.3 1.45.5 2.2.5s1.5-.2 2.2-.5c1.15-.5 2.15-1.35 2.65-2.55l-.9-1.95H8.05Z"
+        fill="#ffcc4a"
+      />
+      <path d="M6.4 11 8.15 10.3 7.45 13.2 6.15 12.35Z" fill="#ffcc4a" />
+      <path d="M17.6 11 15.85 10.3 16.55 13.2 17.85 12.35Z" fill="#ffcc4a" />
+      <rect x="7.55" y="10.45" width="8.9" height="2.45" rx="0.45" fill="#041018" />
+      <rect x="8.2" y="10.95" width="7.6" height="1.35" rx="0.35" fill="#7ee7ff" />
+      <path d="M12 6.95 12.9 8.65h-1.8Z" fill="#041018" />
+      <path d="M10.15 16.35h3.7" stroke="#041018" strokeWidth="1.2" strokeLinecap="square" />
     </Plate>
   );
 }

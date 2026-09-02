@@ -207,22 +207,24 @@ function openHandleDb(): Promise<IDBDatabase> {
   });
 }
 
-export async function saveTallerHandle(dir: FileSystemDirectoryHandle) {
+export const ESQUEMAS_FOLDER = "esquemas de IASPOR";
+
+async function putHandle(key: string, dir: FileSystemDirectoryHandle) {
   const db = await openHandleDb();
   await new Promise<void>((resolve, reject) => {
     const tx = db.transaction("kv", "readwrite");
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
-    tx.objectStore("kv").put(dir, "taller");
+    tx.objectStore("kv").put(dir, key);
   });
 }
 
-export async function loadTallerHandle(): Promise<FileSystemDirectoryHandle | null> {
+async function getHandle(key: string): Promise<FileSystemDirectoryHandle | null> {
   try {
     const db = await openHandleDb();
     const tx = db.transaction("kv", "readonly");
     const handle = await new Promise<FileSystemDirectoryHandle | undefined>((resolve, reject) => {
-      const req = tx.objectStore("kv").get("taller");
+      const req = tx.objectStore("kv").get(key);
       req.onsuccess = () => resolve(req.result as FileSystemDirectoryHandle | undefined);
       req.onerror = () => reject(req.error);
     });
@@ -230,6 +232,14 @@ export async function loadTallerHandle(): Promise<FileSystemDirectoryHandle | nu
   } catch {
     return null;
   }
+}
+
+export async function saveTallerHandle(dir: FileSystemDirectoryHandle) {
+  await putHandle("taller", dir);
+}
+
+export async function loadTallerHandle(): Promise<FileSystemDirectoryHandle | null> {
+  return getHandle("taller");
 }
 
 async function ensureMode(handle: FileSystemHandle, mode: "read" | "readwrite") {
@@ -313,20 +323,71 @@ export async function writeFileToTallerFolder(file: File, subdir?: string) {
         dir = handle;
       }
     }
+    return writeFileToDirectory(dir, file);
+  } catch {
+    return false;
+  }
+}
+
+export async function writeFileToDirectory(dir: FileSystemDirectoryHandle, file: File) {
+  try {
+    if (!(await ensureMode(dir, "readwrite"))) return false;
     const safe = file.name.replace(/[\\/:*?"<>|]+/g, "-").slice(0, 120) || "manual.pdf";
     const fh = await dir.getFileHandle(safe, { create: true });
     const w = await fh.createWritable();
     await w.write(await file.arrayBuffer());
     await w.close();
-    await writeFolderEstado(handle);
     return true;
   } catch {
     return false;
   }
 }
 
+export async function ensureEsquemasFolder(root?: FileSystemDirectoryHandle | null) {
+  const remembered = await getHandle("esquemas");
+  if (remembered && (await ensureMode(remembered, "readwrite"))) return remembered;
+  const base = root ?? (await loadTallerHandle());
+  if (!base) return null;
+  if (!(await ensureMode(base, "readwrite"))) return null;
+  try {
+    const dir = await base.getDirectoryHandle(ESQUEMAS_FOLDER, { create: true });
+    await putHandle("esquemas", dir);
+    return dir;
+  } catch {
+    return base;
+  }
+}
+
+export async function pickEsquemasFolder(): Promise<FileSystemDirectoryHandle | null> {
+  const startIn = await ensureEsquemasFolder();
+  const picker = (
+    window as Window & {
+      showDirectoryPicker?: (opts?: {
+        id?: string;
+        mode?: string;
+        startIn?: FileSystemHandle | string;
+      }) => Promise<FileSystemDirectoryHandle>;
+    }
+  ).showDirectoryPicker;
+  if (!picker) return startIn;
+  try {
+    const dir = await picker.call(window, {
+      id: "iaspor-esquemas",
+      mode: "readwrite",
+      startIn: startIn ?? "documents",
+    });
+    await putHandle("esquemas", dir);
+    return dir;
+  } catch (e) {
+    if (e instanceof DOMException && e.name === "AbortError") return null;
+    return startIn;
+  }
+}
+
 export async function writeAlbaranPdfToFolder(file: File) {
-  return writeFileToTallerFolder(file, "albaranes");
+  const ok = await writeFileToTallerFolder(file, "albaranes");
+  if (ok) await writeFolderEstado();
+  return ok;
 }
 
 export async function requestDurableStorage() {

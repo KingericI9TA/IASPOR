@@ -142,7 +142,9 @@ import {
   restoreFolderEstado,
   writeFolderEstado,
   writeAlbaranPdfToFolder,
-  writeFileToTallerFolder,
+  writeFileToDirectory,
+  pickEsquemasFolder,
+  ESQUEMAS_FOLDER,
   requestDurableStorage,
   loadTallerHandle,
   type TallerFolder,
@@ -584,27 +586,12 @@ function Home() {
       const text = await extractPdfText(file);
       const doc = await savePdf(file, text);
       setLibrary((prev) => [doc, ...prev.filter((d) => d.id !== doc.id)]);
-      let inFolder = await writeFileToTallerFolder(file, "manuales");
-      if (!inFolder) {
-        const picker = (
-          window as Window & {
-            showDirectoryPicker?: (opts?: { mode?: string }) => Promise<FileSystemDirectoryHandle>;
-          }
-        ).showDirectoryPicker;
-        if (picker) {
-          try {
-            const dir = await picker.call(window, { mode: "readwrite" });
-            await saveTallerHandle(dir);
-            inFolder = await writeFileToTallerFolder(file, "manuales");
-          } catch (e) {
-            if (!(e instanceof DOMException && e.name === "AbortError")) {
-              toast.message("El PDF está en Archivos. Elige carpeta para copiarlo.");
-            }
-          }
-        }
-      }
+      const dir = await pickEsquemasFolder();
+      const inFolder = dir ? await writeFileToDirectory(dir, file) : false;
       toast.success(
-        inFolder ? `Guardado en la carpeta /manuales: ${doc.name}` : `Guardado en Archivos: ${doc.name}`,
+        inFolder
+          ? `Guardado en ${dir?.name || ESQUEMAS_FOLDER}: ${doc.name}`
+          : `Guardado en Archivos: ${doc.name}`,
       );
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "No se pudo descargar el PDF");

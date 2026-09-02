@@ -6,6 +6,8 @@ const BASE = "https://spareparts.faacgroup.com/accessautomation/spareparts";
 const UA = "IASPOR/1.0 (manual technician catalog)";
 const MODELS = [
   "746",
+  "413",
+  "560",
   "740",
   "741",
   "844",

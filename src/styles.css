@@ -383,8 +383,13 @@
     paint-order: stroke fill;
   }
 
-  .faac-drawing a {
+  .faac-drawing svg * {
     pointer-events: none;
+  }
+
+  .faac-drawing .faac-hotspot,
+  .faac-drawing .faac-hotspot * {
+    pointer-events: auto;
   }
 
   .faac-hotspot {
@@ -392,16 +397,15 @@
   }
 
   .faac-hotspot rect {
-    fill: rgb(20 20 20 / 0.04) !important;
-    stroke: #1a1a1a !important;
-    stroke-width: 2.8 !important;
+    fill: rgb(20 20 20 / 0.01) !important;
+    stroke: none !important;
     opacity: 1 !important;
   }
 
   .faac-hotspot.is-on rect {
     fill: rgb(255 176 32 / 0.28) !important;
     stroke: #c47a00 !important;
-    stroke-width: 3.4 !important;
+    stroke-width: 2.4 !important;
   }
 
   .app-mark {

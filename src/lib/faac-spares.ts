@@ -53,10 +53,12 @@ export const FAAC_FAMILIES: { id: number; name: string }[] = [
 export const FAAC_MODELS = [
   "400",
   "401",
+  "413",
   "414",
   "415",
   "S418",
   "391",
+  "560",
   "740",
   "741",
   "C720",
@@ -163,7 +165,29 @@ async function serverGet(url: string) {
   return res.text();
 }
 
+async function fetchViaCors(url: string, ms: number) {
+  const sources = [url, `https://proxy.cors.sh/${url}`, `https://proxy.corsfix.com/?${url}`];
+  try {
+    return await Promise.any(
+      sources.map(async (src) => {
+        const res = await fetch(src, { redirect: "follow", signal: AbortSignal.timeout(ms) });
+        if (!res.ok) throw new Error(String(res.status));
+        const text = await res.text();
+        if (!text) throw new Error("empty");
+        return text;
+      }),
+    );
+  } catch {
+    return null;
+  }
+}
+
 async function browserGet(url: string) {
+  if (/\/drawingPage\//.test(url)) {
+    const text = await fetchViaCors(url, 25_000);
+    if (text && /<svg\b/i.test(text)) return text;
+    throw new Error("No se pudo cargar el esquema.");
+  }
   if (!isStaticHost()) {
     try {
       const direct = await fetch(url, { signal: AbortSignal.timeout(4_000) });
@@ -271,8 +295,8 @@ function extractDrawingSvg(html: string) {
     const padded = inner.replace(
       /<rect\s+x="([^"]+)"\s+y="([^"]+)"\s+width="([^"]+)"\s+height="([^"]+)"/i,
       (_r, x: string, y: string, w: string, h: string) => {
-        const pad = 7;
-        return `<rect x="${Number(x) - pad}" y="${Number(y) - pad}" width="${Number(w) + pad * 2}" height="${Number(h) + pad * 2}"`;
+        const pad = 40;
+        return `<rect class="faac-hit" x="${Number(x) - pad}" y="${Number(y) - pad}" width="${Number(w) + pad * 2}" height="${Number(h) + pad * 2}"`;
       },
     );
     return `<g data-pos="${pos}" class="faac-hotspot"${cleaned}>${padded}</g>`;

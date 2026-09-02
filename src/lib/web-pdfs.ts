@@ -97,31 +97,22 @@ function looksLikePdf(buf: ArrayBuffer) {
 
 export async function downloadPdfBytes(url: string): Promise<ArrayBuffer> {
   const clean = unwrap(url);
-  const attempts = [
-    clean,
-    `https://corsproxy.io/?${encodeURIComponent(clean)}`,
-    `https://api.allorigins.win/raw?url=${encodeURIComponent(clean)}`,
-  ];
-  let last = "No se pudo descargar el PDF.";
-  for (const src of attempts) {
-    try {
-      const res = await fetch(src, { redirect: "follow", signal: AbortSignal.timeout(18_000) });
-      if (!res.ok) {
-        last = `No se pudo descargar (${res.status})`;
-        continue;
-      }
-      const buf = await res.arrayBuffer();
-      if (buf.byteLength > MAX_BYTES) throw new Error("PDF demasiado grande (máx. 8 MB).");
-      if (!looksLikePdf(buf)) {
-        last = "El enlace no devolvió un PDF.";
-        continue;
-      }
-      return buf;
-    } catch (e) {
-      last = e instanceof Error ? e.message : last;
-    }
+  const sources = [clean, `https://proxy.corsfix.com/?${clean}`];
+
+  const pull = async (src: string) => {
+    const res = await fetch(src, { redirect: "follow", signal: AbortSignal.timeout(10_000) });
+    if (!res.ok) throw new Error(`No se pudo descargar (${res.status})`);
+    const buf = await res.arrayBuffer();
+    if (buf.byteLength > MAX_BYTES) throw new Error("PDF demasiado grande (máx. 8 MB).");
+    if (!looksLikePdf(buf)) throw new Error("El enlace no devolvió un PDF.");
+    return buf;
+  };
+
+  try {
+    return await Promise.any(sources.map(pull));
+  } catch {
+    throw new Error("No se pudo descargar el PDF. Ábrelo y pulsa Añadir archivos.");
   }
-  throw new Error(last);
 }
 
 export function pdfFileName(url: string, title: string) {

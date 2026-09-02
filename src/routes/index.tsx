@@ -579,6 +579,7 @@ function Home() {
   const saveWebPdf = async (hit: WebHit) => {
     if (hit.kind !== "pdf") return;
     setSavingUrl(hit.url);
+    toast.message("Descargando…");
     try {
       const buf = await downloadPdfBytes(hit.url);
       const file = new File([buf], pdfFileName(hit.url, hit.title), { type: "application/pdf" });

@@ -19,6 +19,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Icono IASPOR
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y imagemagick fonts-dejavu-core
+          convert -size 512x512 xc:'#020617' \
+            -font DejaVu-Sans-Bold -pointsize 108 -gravity center \
+            -fill '#0b4f8c' -annotate +0+10 'IASPOR' \
+            -fill '#1a9fff' -annotate +0+3 'IASPOR' \
+            -fill '#f0f6ff' -annotate +0-5 'IASPOR' \
+            public/icon-512.png
+          convert public/icon-512.png -resize 192x192 public/icon-192.png
+          convert public/icon-512.png -resize 180x180 public/__grok/icon-180.png
       - uses: actions/setup-node@v4
         with:
           node-version: "22"

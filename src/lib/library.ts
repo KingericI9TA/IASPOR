@@ -71,13 +71,17 @@ export async function savePdf(file: File, text: string, kind: DocKind = "pdf"): 
     favorite: false,
     kind,
   };
+  const typed =
+    kind === "pdf" && file.type !== "application/pdf"
+      ? new File([file], file.name, { type: "application/pdf" })
+      : file;
   const db = await openDb();
   await new Promise<void>((resolve, reject) => {
     const tx = db.transaction(["meta", "blobs"], "readwrite");
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
     tx.objectStore("meta").put(doc);
-    tx.objectStore("blobs").put(file, id);
+    tx.objectStore("blobs").put(typed, id);
   });
   return doc;
 }

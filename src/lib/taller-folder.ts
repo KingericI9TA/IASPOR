@@ -1,4 +1,4 @@
-import { isTallerFile, kindOfFile } from "@/lib/office-text";
+import { isTallerFile, kindOfFile, mimeForKind } from "@/lib/office-text";
 import { applyEstado, buildEstado, type IasporEstado } from "@/lib/backup";
 import { unzipStore } from "@/lib/zip-store";
 
@@ -109,9 +109,11 @@ export async function filesFromZip(buf: ArrayBuffer, prefix = "") {
     const base = parts[parts.length - 1];
     if (base.startsWith(".")) continue;
     const file = new File([e.data as BlobPart], base);
-    if (!kindOfFile(file)) continue;
+    const kind = kindOfFile(file);
+    if (!kind) continue;
+    const typed = new File([e.data as BlobPart], base, { type: mimeForKind(kind) });
     const path = [prefix, ...parts].filter(Boolean).join("/");
-    out.push(withPath(file, path));
+    out.push(withPath(typed, path));
   }
   return out;
 }

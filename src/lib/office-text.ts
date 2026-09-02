@@ -16,6 +16,13 @@ const MIME: Record<DocKind, string[]> = {
   csv: ["text/csv", "text/plain", "application/vnd.ms-excel"],
 };
 
+export function mimeForKind(kind: DocKind) {
+  if (kind === "pdf") return "application/pdf";
+  if (kind === "word") return MIME.word[0];
+  if (kind === "excel") return MIME.excel[0];
+  return "text/csv";
+}
+
 export function kindOfFile(file: File): DocKind | null {
   const n = file.name.toLowerCase();
   if (n.endsWith(".pdf") || file.type === "application/pdf") return "pdf";

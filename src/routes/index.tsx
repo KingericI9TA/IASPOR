@@ -34,6 +34,7 @@ import { PresupuestoPane } from "@/components/presupuesto-pane";
 import { JarvisConsulta } from "@/components/jarvis";
 import { FaacCatalogViewer } from "@/components/faac-catalog-viewer";
 import { FaacDrawingViewer } from "@/components/faac-drawing-viewer";
+import { PdfBlobViewer } from "@/components/pdf-blob-viewer";
 import { BRANDS, bumpBrandUsage, detectBrandFromText, frequentBrands, type Brand } from "@/lib/brands";
 import { KIND_LABEL, type CatalogDoc } from "@/lib/catalog";
 import {
@@ -209,7 +210,7 @@ function Home() {
   const [webHits, setWebHits] = useState<WebHit[] | null>(null);
   const [webError, setWebError] = useState<string | null>(null);
   const [webLoading, setWebLoading] = useState(false);
-  const [viewer, setViewer] = useState<{ name: string; url: string } | null>(null);
+  const [viewer, setViewer] = useState<{ name: string; blob: Blob } | null>(null);
   const [recents, setRecents] = useState<string[]>([]);
   const [syncedDocs, setSyncedDocs] = useState<CatalogDoc[]>([]);
   const [sync, setSync] = useState<SyncSettings>(DEFAULT_SYNC);
@@ -530,7 +531,7 @@ function Home() {
 
   const openLocal = async (doc: LibraryDoc) => {
     const blob = await getBlob(doc.id);
-    if (!blob) {
+    if (!blob || blob.size < 8) {
       toast.error("El archivo ya no está en el teléfono");
       return;
     }
@@ -556,8 +557,9 @@ function Home() {
       toast.message("Texto indexado en Buscar. Archivo descargado.");
       return;
     }
-    const url = URL.createObjectURL(blob);
-    setViewer({ name: doc.name, url });
+    const typed =
+      blob.type === "application/pdf" ? blob : new Blob([blob], { type: "application/pdf" });
+    setViewer({ name: doc.name, blob: typed });
   };
 
   const saveWebPdf = async (hit: WebHit) => {
@@ -793,22 +795,7 @@ function Home() {
       />
 
       {viewer ? (
-        <div className="fixed inset-0 z-40 flex flex-col bg-bg">
-          <div className="flex items-center gap-2 border-b border-border px-3 py-2">
-            <p className="min-w-0 flex-1 truncate text-sm font-medium">{viewer.name}</p>
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={() => {
-                URL.revokeObjectURL(viewer.url);
-                setViewer(null);
-              }}
-            >
-              Cerrar
-            </Button>
-          </div>
-          <iframe title={viewer.name} src={viewer.url} className="min-h-0 flex-1 bg-raised" />
-        </div>
+        <PdfBlobViewer name={viewer.name} blob={viewer.blob} onClose={() => setViewer(null)} />
       ) : null}
 
       {officeOpen ? (

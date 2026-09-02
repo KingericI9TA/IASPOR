@@ -1,5 +1,5 @@
 import { isTallerFile, kindOfFile, mimeForKind } from "@/lib/office-text";
-import { applyEstado, buildEstado, type IasporEstado } from "@/lib/backup";
+import { applyEstado, buildEstado, isTrustedEstado, estadoNeedsConfirm, type IasporEstado } from "@/lib/backup";
 import { unzipStore } from "@/lib/zip-store";
 
 const STATE_FILE = "IASPOR-estado.json";
@@ -287,7 +287,10 @@ export async function readFolderEstado(dir: FileSystemDirectoryHandle): Promise<
   }
 }
 
-export async function restoreFolderEstado(dir: FileSystemDirectoryHandle) {
+export async function restoreFolderEstado(
+  dir: FileSystemDirectoryHandle,
+  mode: "boot" | "pick" = "boot",
+) {
   const estado = await readFolderEstado(dir);
   let nFile = 0;
   try {
@@ -299,14 +302,22 @@ export async function restoreFolderEstado(dir: FileSystemDirectoryHandle) {
     nFile = 0;
   }
   if (estado) {
+    if (!isTrustedEstado(estado)) return false;
+    if (mode === "boot" && estadoNeedsConfirm(estado)) return false;
     const last = Math.max(Number(estado.lastAlbaran) || 0, nFile);
     if (last > (estado.lastAlbaran || 0)) {
       estado.lastAlbaran = last;
       estado.albaranSeq = { year: estado.albaranSeq?.year ?? new Date().getFullYear(), last };
     }
-    return applyEstado(estado);
+    return applyEstado(estado, { confirm: mode === "pick" });
   }
-  if (nFile > 0) return applyEstado({ lastAlbaran: nFile, albaranSeq: { year: new Date().getFullYear(), last: nFile } });
+  if (mode === "boot") return false;
+  if (nFile > 0) {
+    return applyEstado(
+      { app: "IASPOR", v: 2, lastAlbaran: nFile, albaranSeq: { year: new Date().getFullYear(), last: nFile } },
+      { confirm: true },
+    );
+  }
   return false;
 }
 

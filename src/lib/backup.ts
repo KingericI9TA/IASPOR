@@ -4,8 +4,12 @@ import { listLibrary, getBlob, savePdf } from "@/lib/library";
 import { unzipStore, zipStore } from "@/lib/zip-store";
 
 const META = "iaspor.json";
+const APP = "IASPOR";
+const DEVICE_KEY = "iaspor:device";
 
 export type IasporEstado = {
+  app?: string;
+  device?: string;
   v: number;
   at: number;
   pedido: PedidoItem[];
@@ -16,6 +20,38 @@ export type IasporEstado = {
   recents: string[];
 };
 
+export function deviceId() {
+  try {
+    let id = localStorage.getItem(DEVICE_KEY);
+    if (!id) {
+      id = `d-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+      localStorage.setItem(DEVICE_KEY, id);
+    }
+    return id;
+  } catch {
+    return "anon";
+  }
+}
+
+function isEstadoShape(p: Partial<IasporEstado>) {
+  if (p.v !== 1 && p.v !== 2) return false;
+  if (p.pedido && !Array.isArray(p.pedido)) return false;
+  if (p.albaranes && !Array.isArray(p.albaranes)) return false;
+  if (p.dest && (typeof p.dest !== "object" || Array.isArray(p.dest))) return false;
+  if (p.app && p.app !== APP) return false;
+  return true;
+}
+
+export function isTrustedEstado(p: Partial<IasporEstado> | null | undefined): p is Partial<IasporEstado> {
+  return !!p && isEstadoShape(p);
+}
+
+export function estadoNeedsConfirm(p: Partial<IasporEstado>) {
+  if (p.app !== APP) return true;
+  if (p.device && p.device !== deviceId()) return true;
+  return false;
+}
+
 export function buildEstado(): IasporEstado {
   const last = loadLastAlbaranNumber();
   let recents: string[] = [];
@@ -25,6 +61,8 @@ export function buildEstado(): IasporEstado {
     recents = [];
   }
   return {
+    app: APP,
+    device: deviceId(),
     v: 2,
     at: Date.now(),
     pedido: loadPedido(),
@@ -36,8 +74,18 @@ export function buildEstado(): IasporEstado {
   };
 }
 
-export function applyEstado(p: Partial<IasporEstado> | null | undefined) {
-  if (!p) return false;
+export function applyEstado(
+  p: Partial<IasporEstado> | null | undefined,
+  opts?: { confirm?: boolean },
+) {
+  if (!isTrustedEstado(p)) return false;
+  if (opts?.confirm === false && estadoNeedsConfirm(p)) return false;
+  if (opts?.confirm !== false && estadoNeedsConfirm(p)) {
+    if (typeof window === "undefined") return false;
+    if (!window.confirm("Esta carpeta trae pedido y albaranes. ¿Ponerlos en este teléfono?")) {
+      return false;
+    }
+  }
   let used = false;
   if (Array.isArray(p.pedido)) {
     savePedido(p.pedido);
@@ -105,7 +153,7 @@ export async function importTallerZip(file: Blob) {
     if (e.name === META) {
       try {
         const p = JSON.parse(dec.decode(e.data)) as Partial<IasporEstado>;
-        if (applyEstado(p)) meta = true;
+        if (applyEstado(p, { confirm: true })) meta = true;
       } catch {
         /* ignore */
       }

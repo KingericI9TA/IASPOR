@@ -6,7 +6,20 @@ type PdfDoc = Awaited<ReturnType<(typeof import("pdfjs-dist"))["getDocument"]>["
 
 const pdfCache = new Map<string, Promise<PdfDoc>>();
 
+function isLocalCatalogPdf(url: string) {
+  try {
+    const u = new URL(url, typeof location === "undefined" ? "http://local.invalid" : location.href);
+    if (typeof location !== "undefined" && u.origin !== location.origin) return false;
+    return u.pathname.toLowerCase().includes(".pdf") || u.pathname.includes("/catalogos/");
+  } catch {
+    return false;
+  }
+}
+
 async function loadCatalogPdf(url: string) {
+  if (!isLocalCatalogPdf(url)) {
+    throw new Error("El visor solo abre catálogos de esta app. Ábrelo fuera.");
+  }
   const hit = pdfCache.get(url);
   if (hit) return hit;
   const pending = (async () => {

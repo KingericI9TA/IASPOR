@@ -500,7 +500,7 @@ function Home() {
       try {
         const dir = await picker.call(window, { mode: "readwrite" });
         await saveTallerHandle(dir);
-        const recovered = await restoreFolderEstado(dir);
+        const recovered = await restoreFolderEstado(dir, "pick");
         const { files, folders } = await collectTallerFiles(dir);
         if (!files.length && !recovered) {
           toast.error("No hay PDF, Word o Excel en esa carpeta ni en sus subcarpetas");
@@ -578,6 +578,13 @@ function Home() {
 
   const saveWebPdf = async (hit: WebHit) => {
     if (hit.kind !== "pdf") return;
+    if (
+      !window.confirm(
+        "Este PDF se pide por internet (no se queda solo en el teléfono). ¿Descargar a esquemas de IASPOR?",
+      )
+    ) {
+      return;
+    }
     setSavingUrl(hit.url);
     toast.message("Descargando…");
     try {

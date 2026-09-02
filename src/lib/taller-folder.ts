@@ -300,18 +300,21 @@ export async function restoreFolderEstado(dir: FileSystemDirectoryHandle) {
   return false;
 }
 
-export async function writeAlbaranPdfToFolder(file: File) {
+export async function writeFileToTallerFolder(file: File, subdir?: string) {
   try {
     const handle = await loadTallerHandle();
     if (!handle) return false;
     if (!(await ensureMode(handle, "readwrite"))) return false;
     let dir = handle;
-    try {
-      dir = await handle.getDirectoryHandle("albaranes", { create: true });
-    } catch {
-      dir = handle;
+    if (subdir) {
+      try {
+        dir = await handle.getDirectoryHandle(subdir, { create: true });
+      } catch {
+        dir = handle;
+      }
     }
-    const fh = await dir.getFileHandle(file.name, { create: true });
+    const safe = file.name.replace(/[\\/:*?"<>|]+/g, "-").slice(0, 120) || "manual.pdf";
+    const fh = await dir.getFileHandle(safe, { create: true });
     const w = await fh.createWritable();
     await w.write(await file.arrayBuffer());
     await w.close();
@@ -320,6 +323,10 @@ export async function writeAlbaranPdfToFolder(file: File) {
   } catch {
     return false;
   }
+}
+
+export async function writeAlbaranPdfToFolder(file: File) {
+  return writeFileToTallerFolder(file, "albaranes");
 }
 
 export async function requestDurableStorage() {

@@ -78,7 +78,7 @@ import {
 } from "@/lib/library";
 import { googleQuery, searchLocal, type LocalHit } from "@/lib/search-local";
 import { webEngineHits, type WebHit } from "@/lib/google-search";
-import { fetchRemotePdf } from "@/lib/search-web";
+import { downloadPdfBytes, findWebPdfs, pdfFileName } from "@/lib/web-pdfs";
 import { isStaticHost, friendlyServerError } from "@/lib/static-host";
 import {
   FAAC_FAMILIES,
@@ -142,6 +142,7 @@ import {
   restoreFolderEstado,
   writeFolderEstado,
   writeAlbaranPdfToFolder,
+  writeFileToTallerFolder,
   requestDurableStorage,
   loadTallerHandle,
   type TallerFolder,
@@ -317,8 +318,19 @@ function Home() {
     const trimmed = q.trim();
     if (trimmed.length < 2) return;
     setWebError(null);
-    setWebLoading(false);
-    setWebHits(webEngineHits(trimmed));
+    const engines = webEngineHits(trimmed);
+    setWebHits(engines);
+    setWebLoading(true);
+    void (async () => {
+      try {
+        const pdfs = await findWebPdfs(trimmed);
+        setWebHits([...engines, ...pdfs]);
+      } catch {
+        /* Google sigue disponible */
+      } finally {
+        setWebLoading(false);
+      }
+    })();
   }, []);
 
   const persistSync = (next: SyncSettings) => {
@@ -564,26 +576,38 @@ function Home() {
 
   const saveWebPdf = async (hit: WebHit) => {
     if (hit.kind !== "pdf") return;
-    if (isStaticHost()) {
-      toast.message("Abre el PDF y guárdalo en la carpeta del teléfono.");
-      return;
-    }
     setSavingUrl(hit.url);
     try {
-      const res = await fetchRemotePdf({ data: { url: hit.url } });
-      if (!res.ok) {
-        toast.error(res.error);
-        return;
-      }
-      const bytes = Uint8Array.from(atob(res.base64), (c) => c.charCodeAt(0));
-      const file = new File([bytes], `${res.name}.pdf`, { type: "application/pdf" });
+      const buf = await downloadPdfBytes(hit.url);
+      const file = new File([buf], pdfFileName(hit.url, hit.title), { type: "application/pdf" });
       const { extractPdfText } = await import("@/lib/pdf-text");
       const text = await extractPdfText(file);
       const doc = await savePdf(file, text);
       setLibrary((prev) => [doc, ...prev.filter((d) => d.id !== doc.id)]);
-      toast.success(`Guardado en Archivos: ${doc.name}`);
+      let inFolder = await writeFileToTallerFolder(file, "manuales");
+      if (!inFolder) {
+        const picker = (
+          window as Window & {
+            showDirectoryPicker?: (opts?: { mode?: string }) => Promise<FileSystemDirectoryHandle>;
+          }
+        ).showDirectoryPicker;
+        if (picker) {
+          try {
+            const dir = await picker.call(window, { mode: "readwrite" });
+            await saveTallerHandle(dir);
+            inFolder = await writeFileToTallerFolder(file, "manuales");
+          } catch (e) {
+            if (!(e instanceof DOMException && e.name === "AbortError")) {
+              toast.message("El PDF está en Archivos. Elige carpeta para copiarlo.");
+            }
+          }
+        }
+      }
+      toast.success(
+        inFolder ? `Guardado en la carpeta /manuales: ${doc.name}` : `Guardado en Archivos: ${doc.name}`,
+      );
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "No se pudo guardar el PDF");
+      toast.error(e instanceof Error ? e.message : "No se pudo descargar el PDF");
     } finally {
       setSavingUrl(null);
     }
@@ -1087,7 +1111,7 @@ function SearchPane({
                       ) : (
                         <Download />
                       )}
-                      Guardar
+                      Descargar en carpeta
                     </Button>
                   ) : null}
                 </div>

@@ -195,7 +195,7 @@ function applyTheme(obra: boolean) {
 
 const MAIN_TABS = [
   { id: "buscar" as const, label: "Buscar", Icon: IconBuscar, lamp: "lamp-cyan" },
-  { id: "averias" as const, label: "Averías", Icon: IconAverias, lamp: "lamp-orange" },
+  { id: "averias" as const, label: "Averías", Icon: IconAverias, lamp: "lamp-green" },
   { id: "piezas" as const, label: "Piezas", Icon: IconPiezas, lamp: "lamp-orange" },
 ];
 

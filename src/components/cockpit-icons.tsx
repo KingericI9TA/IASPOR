@@ -129,7 +129,7 @@ export function IconJarvis({ className }: IconProps) {
 
 export function IconAverias({ className }: IconProps) {
   return (
-    <Plate className={className} tone="orange">
+    <Plate className={className} tone="green">
       <path d="M12 6.2 18.4 17.6H5.6Z" fill="currentColor" />
       <rect x="11.2" y="10" width="1.6" height="4.3" fill="#041018" />
       <rect x="11.2" y="15.1" width="1.6" height="1.35" fill="#041018" />

@@ -1,4 +1,5 @@
 import { loadAlbaranHistory, loadLastAlbaranNumber, currentAlbaranYear, restoreAlbaranBackup, peekNextAlbaranNumber, type AlbaranRecord } from "@/lib/albaran";
+import { loadAverias, saveAverias, type Averia } from "@/lib/averias";
 import { loadDest, loadPedido, saveDest, savePedido, type PedidoItem } from "@/lib/faac-pedido";
 import { listLibrary, getBlob, savePdf } from "@/lib/library";
 import { unzipStore, zipStore } from "@/lib/zip-store";
@@ -17,6 +18,7 @@ export type IasporEstado = {
   albaranSeq: { year: number; last: number };
   lastAlbaran: number;
   albaranes: AlbaranRecord[];
+  averias?: Averia[];
   recents: string[];
 };
 
@@ -37,6 +39,7 @@ function isEstadoShape(p: Partial<IasporEstado>) {
   if (p.v !== 1 && p.v !== 2) return false;
   if (p.pedido && !Array.isArray(p.pedido)) return false;
   if (p.albaranes && !Array.isArray(p.albaranes)) return false;
+  if (p.averias && !Array.isArray(p.averias)) return false;
   if (p.dest && (typeof p.dest !== "object" || Array.isArray(p.dest))) return false;
   if (p.app && p.app !== APP) return false;
   return true;
@@ -70,6 +73,7 @@ export function buildEstado(): IasporEstado {
     albaranSeq: { year: currentAlbaranYear(), last },
     lastAlbaran: last,
     albaranes: loadAlbaranHistory(),
+    averias: loadAverias(),
     recents: Array.isArray(recents) ? recents.slice(0, 12) : [],
   };
 }
@@ -104,6 +108,10 @@ export function applyEstado(
       seq: p.albaranSeq ?? (Number.isFinite(Number(p.lastAlbaran)) ? { last: Number(p.lastAlbaran) } : undefined),
       records: Array.isArray(p.albaranes) ? p.albaranes : undefined,
     });
+    used = true;
+  }
+  if (Array.isArray(p.averias)) {
+    saveAverias(p.averias);
     used = true;
   }
   return used;

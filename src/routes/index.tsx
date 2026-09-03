@@ -19,6 +19,7 @@ import { Input } from "@/components/ui/input";
 import {
   IconAlbaran,
   IconArchivos,
+  IconAverias,
   IconBuscar,
   IconCatalogo,
   IconCodigos,
@@ -31,6 +32,7 @@ import {
   IconWeb,
 } from "@/components/cockpit-icons";
 import { PresupuestoPane } from "@/components/presupuesto-pane";
+import { AveriasPane } from "@/components/averias-pane";
 import { JarvisConsulta } from "@/components/jarvis";
 import { FaacCatalogViewer } from "@/components/faac-catalog-viewer";
 import { FaacDrawingViewer } from "@/components/faac-drawing-viewer";
@@ -45,6 +47,9 @@ import {
   issueAlbaran,
   loadAlbaranHistory,
   peekNextAlbaranNumber,
+  draftFromCodigo,
+  stashAlbaranDraft,
+  takeAlbaranDraft,
   type AlbaranDraft,
   type AlbaranRecord,
 } from "@/lib/albaran";
@@ -149,7 +154,10 @@ import {
   saveTallerHandle,
   restoreFolderEstado,
   writeFolderEstado,
-  writeAlbaranPdfToFolder,
+  commitAlbaranToFolder,
+  syncAlbaranNumberFromFolder,
+  pickTallerDirectory,
+  canPickTallerDirectory,
   writeFileToDirectory,
   pickEsquemasFolder,
   ESQUEMAS_FOLDER,
@@ -158,7 +166,7 @@ import {
   type TallerFolder,
 } from "@/lib/taller-folder";
 import { extractOfficeText, kindOfFile, runPool } from "@/lib/office-text";
-import { cn, copyToClipboard, formatBytes, formatWhen } from "@/lib/utils";
+import { cn, copyToClipboard, formatBytes, formatWhen, normalize } from "@/lib/utils";
 import { AppErrorComponent } from "@/lib/error-component";
 
 export const Route = createFileRoute("/")({
@@ -166,7 +174,7 @@ export const Route = createFileRoute("/")({
   errorComponent: AppErrorComponent,
 });
 
-type Tab = "buscar" | "archivos" | "marcas" | "catalogo" | "piezas" | "pedido" | "codigos" | "albaran" | "presupuesto";
+type Tab = "buscar" | "archivos" | "marcas" | "catalogo" | "piezas" | "pedido" | "codigos" | "averias" | "albaran" | "presupuesto";
 
 const RECENTS_KEY = "puertadocs:recents";
 const THEME_KEY = "iaspor:theme";
@@ -196,6 +204,7 @@ const OFFICE_TABS = [
   { id: "marcas" as const, label: "Marcas", Icon: IconMarcas, lamp: "lamp-green" },
   { id: "pedido" as const, label: "Pedido FAAC", Icon: IconPedido, lamp: "lamp-white" },
   { id: "codigos" as const, label: "Códigos", Icon: IconCodigos, lamp: "lamp-yellow" },
+  { id: "averias" as const, label: "Averías", Icon: IconAverias, lamp: "lamp-orange" },
   { id: "albaran" as const, label: "Albarán", Icon: IconAlbaran, lamp: "lamp-red" },
   { id: "presupuesto" as const, label: "Presupuesto", Icon: IconPresupuesto, lamp: "lamp-green" },
 ];
@@ -211,6 +220,13 @@ const ALBARAN_STEPS = [
   { key: "cantidad" as const, label: "Cantidad", placeholder: "1", inputMode: "decimal" as const },
   { key: "importe" as const, label: "Importe (precio unidad)", placeholder: "77,90", inputMode: "decimal" as const },
 ];
+
+function sameCliente(a: string, b: string) {
+  const na = normalize(a);
+  const nb = normalize(b);
+  if (!na || !nb) return false;
+  return na === nb || (na.length >= 4 && nb.includes(na)) || (nb.length >= 4 && na.includes(nb));
+}
 
 function Home() {
   const [tab, setTab] = useState<Tab>("buscar");
@@ -831,7 +847,27 @@ function Home() {
 
       {tab === "pedido" ? <PedidoPane /> : null}
 
-      {tab === "codigos" ? <CodesPane /> : null}
+      {tab === "codigos" ? (
+        <CodesPane
+          onUsarAlbaran={(values) => {
+            stashAlbaranDraft(draftFromCodigo(values));
+            setTab("albaran");
+            setOfficeOpen(false);
+            toast.message("Cliente copiado al albarán");
+          }}
+        />
+      ) : null}
+
+      {tab === "averias" ? (
+        <AveriasPane
+          onHacerAlbaran={(draft) => {
+            stashAlbaranDraft(draft);
+            setTab("albaran");
+            setOfficeOpen(false);
+            toast.message("Avería copiada al albarán");
+          }}
+        />
+      ) : null}
 
       {tab === "albaran" ? <AlbaranPane /> : null}
 
@@ -2170,7 +2206,7 @@ function PedidoPane() {
   );
 }
 
-function CodesPane() {
+function CodesPane({ onUsarAlbaran }: { onUsarAlbaran?: (values: Record<string, string>) => void }) {
   const [rows, setRows] = useState<CodeRow[]>([]);
   const [headers, setHeaders] = useState<string[]>([]);
   const [names, setNames] = useState<Record<"a" | "b", string>>({
@@ -2415,6 +2451,17 @@ function CodesPane() {
                     </div>
                   ))}
               </dl>
+              {onUsarAlbaran ? (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="mt-3 w-full"
+                  onClick={() => onUsarAlbaran(hit.values)}
+                >
+                  <IconAlbaran />
+                  Usar en albarán
+                </Button>
+              ) : null}
             </li>
           ))}
         </ul>
@@ -2436,6 +2483,7 @@ function AlbaranPane() {
 
   const [draft, setDraft] = useState<AlbaranDraft>(empty);
   const [nextNum, setNextNum] = useState(peekNextAlbaranNumber);
+  const [fromFolder, setFromFolder] = useState(false);
   const [busy, setBusy] = useState(false);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [pdfFile, setPdfFile] = useState<File | null>(null);
@@ -2444,8 +2492,21 @@ function AlbaranPane() {
   const analyzed = useRef(false);
 
   useEffect(() => {
+    const stash = takeAlbaranDraft();
+    if (stash) {
+      setDraft((d) => ({
+        ...d,
+        ...stash,
+        tipo: stash.tipo ?? d.tipo,
+        cantidad: stash.cantidad || d.cantidad,
+      }));
+    }
     setHistory(loadAlbaranHistory());
-    setNextNum(peekNextAlbaranNumber());
+    void syncAlbaranNumberFromFolder().then((s) => {
+      setNextNum(s.next);
+      setFromFolder(s.fromFolder);
+      setHistory(loadAlbaranHistory());
+    });
   }, []);
 
   useEffect(() => {
@@ -2475,6 +2536,9 @@ function AlbaranPane() {
   const generate = async () => {
     setBusy(true);
     try {
+      const synced = await syncAlbaranNumberFromFolder();
+      setFromFolder(synced.fromFolder);
+      setNextNum(synced.next);
       const { rec, bytes } = await issueAlbaran(draft);
       const blob = new Blob([bytes as BlobPart], { type: "application/pdf" });
       if (pdfUrl) URL.revokeObjectURL(pdfUrl);
@@ -2490,12 +2554,13 @@ function AlbaranPane() {
       } catch {
         /* índice local opcional */
       }
-      const inFolder = await writeAlbaranPdfToFolder(file);
+      const inFolder = await commitAlbaranToFolder(file, rec.numero);
+      setFromFolder(inFolder);
       if (!inFolder) await writeFolderEstado();
       toast.success(
         inFolder
-          ? `Albarán ${rec.numero} guardado en la carpeta /albaranes`
-          : `Albarán ${rec.numero} listo. Elige la carpeta del teléfono para no perderlo.`,
+          ? `Albarán ${rec.numero} en la carpeta /albaranes`
+          : `Albarán ${rec.numero} listo. Elige la carpeta del teléfono para no perder el número.`,
       );
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "No se pudo generar el PDF");
@@ -2537,12 +2602,47 @@ function AlbaranPane() {
     }
   };
 
+  const pickFolder = async () => {
+    if (!canPickTallerDirectory()) {
+      toast.message("En el teléfono: Archivos → Elegir carpeta. Así el número no se pierde.");
+      return;
+    }
+    const dir = await pickTallerDirectory();
+    if (!dir) return;
+    const s = await syncAlbaranNumberFromFolder();
+    setNextNum(issued ? peekNextAlbaranNumber() : s.next);
+    setHistory(loadAlbaranHistory());
+    if (pdfFile && issued) {
+      const ok = await commitAlbaranToFolder(pdfFile, issued.numero);
+      setFromFolder(ok);
+      toast.success(ok ? `Albarán ${issued.numero} en /albaranes` : "Carpeta lista. No se pudo guardar el PDF.");
+      return;
+    }
+    setFromFolder(s.fromFolder);
+    toast.success(`Carpeta lista. Siguiente albarán nº ${s.next}`);
+  };
+
+  const clientName = issued?.cliente || draft.cliente;
+  const clientHist = clientName.trim()
+    ? history.filter((h) => sameCliente(h.cliente, clientName) && (!issued || h.numero !== issued.numero))
+    : [];
+  const restHist = history
+    .filter((h) => (!issued || h.numero !== issued.numero) && !clientHist.includes(h))
+    .slice(0, 6);
+  const issuedTel = issued?.telefono.replace(/\s/g, "") ?? "";
+  const issuedPhone = issuedTel.match(/\+?\d{6,}/)?.[0] ?? "";
+  const issuedMail = issued && /@/.test(issued.telefono) ? issued.telefono.trim() : "";
+
   return (
     <div className="pane">
       <div>
         <h2 className="flex items-center gap-2 text-lg font-semibold text-primary">
           <IconAlbaran className="size-5" /> Albarán
         </h2>
+        <p className="mt-1 text-sm leading-relaxed text-muted">
+          El número y el PDF viven en la carpeta del taller (IASPOR-albaran-n.txt y /albaranes). Así no se
+          pierde al cambiar de teléfono.
+        </p>
       </div>
 
       {issued && pdfUrl ? (
@@ -2551,6 +2651,36 @@ function AlbaranPane() {
           <p className="mt-1 font-mono text-xs text-primary">
             {issued.fecha} · Total {euro(issued.total)}
           </p>
+          {fromFolder ? (
+            <p className="mt-1 text-xs text-muted">Guardado en la carpeta /albaranes</p>
+          ) : (
+            <p className="mt-1 text-xs text-muted">Solo en este teléfono. Elige carpeta para anclar el número.</p>
+          )}
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            {issuedPhone ? (
+              <Button asChild variant="secondary" className="w-full">
+                <a href={`tel:${issuedPhone}`}>Llamar</a>
+              </Button>
+            ) : null}
+            {issuedMail ? (
+              <Button asChild variant="secondary" className="w-full">
+                <a href={`mailto:${issuedMail}`}>
+                  <Mail /> Correo
+                </a>
+              </Button>
+            ) : null}
+            {issued.direccion.trim() ? (
+              <Button asChild variant="secondary" className="w-full">
+                <a
+                  href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(issued.direccion)}`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Mapa
+                </a>
+              </Button>
+            ) : null}
+          </div>
           <div className="mt-4 grid grid-cols-2 gap-2">
             <Button className="w-full" onClick={() => void sharePdf()}>
               <Share2 /> Compartir
@@ -2561,6 +2691,11 @@ function AlbaranPane() {
               </a>
             </Button>
           </div>
+          {!fromFolder ? (
+            <Button className="mt-3 w-full" variant="secondary" onClick={() => void pickFolder()}>
+              <IconArchivos /> Anclar a carpeta
+            </Button>
+          ) : null}
           <Button className="mt-3 w-full" variant="secondary" onClick={reset}>
             Nuevo albarán
           </Button>
@@ -2604,15 +2739,46 @@ function AlbaranPane() {
               {busy ? <Loader2 className="animate-spin" /> : <Download />}
               Generar PDF · nº {nextNum}
             </Button>
+            {fromFolder ? (
+              <p className="text-center text-xs text-muted">El número sale de la carpeta del taller</p>
+            ) : (
+              <div className="flex flex-col gap-2">
+                <p className="text-center text-xs text-muted">
+                  El número está solo en este teléfono. Elige carpeta para no perderlo.
+                </p>
+                <Button type="button" variant="secondary" className="w-full" onClick={() => void pickFolder()}>
+                  <IconArchivos /> Anclar a carpeta
+                </Button>
+              </div>
+            )}
           </form>
         </div>
       )}
 
-      {history.length > 0 ? (
+      {clientHist.length > 0 ? (
+        <div>
+          <p className="mb-2 text-xs tracking-[0.16em] text-muted uppercase">
+            Este cliente · {clientHist.length}
+          </p>
+          <ul className="flex flex-col gap-2">
+            {clientHist.slice(0, 8).map((h) => (
+              <li key={`${h.numero}-${h.createdAt}`} className="rounded-md hud px-3 py-2 text-sm">
+                <p>
+                  <span className="font-mono text-primary">{h.numero}</span> · {h.fecha} · {h.tipo}
+                </p>
+                <p className="mt-0.5 text-muted">{h.concepto}</p>
+                <p className="font-mono text-xs text-primary">{euro(h.total)}</p>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {restHist.length > 0 ? (
         <div>
           <p className="mb-2 text-xs tracking-[0.16em] text-muted uppercase">Anteriores</p>
           <ul className="flex flex-col gap-2">
-            {history.slice(0, 6).map((h) => (
+            {restHist.map((h) => (
               <li key={`${h.numero}-${h.createdAt}`} className="rounded-md hud px-3 py-2 text-sm">
                 <span className="font-mono text-primary">{h.numero}</span> · {h.cliente} · {h.fecha}
               </li>

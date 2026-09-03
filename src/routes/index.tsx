@@ -254,7 +254,7 @@ function Home() {
   const autoTried = useRef(false);
   const folderTried = useRef(false);
   const skipEnter = useRef(true);
-  const brands = frequentBrands(15);
+  const brands = frequentBrands(6);
 
   const rememberBrand = (brand: Brand) => {
     bumpBrandUsage(brand.id);
@@ -739,13 +739,13 @@ function Home() {
         </form>
 
         {recents.length > 0 && !query ? (
-          <div className="mt-3 flex flex-wrap gap-2">
+          <div className="mt-3 flex flex-nowrap gap-2 overflow-x-auto overscroll-x-contain pb-1">
             {recents.map((r) => (
               <button
                 key={r}
                 type="button"
                 onClick={() => submitSearch(r)}
-                className="chip h-8 min-h-8 px-3 text-muted hover:text-primary"
+                className="chip h-8 min-h-8 shrink-0 px-3 text-muted hover:text-primary"
               >
                 {r}
               </button>
@@ -1051,7 +1051,7 @@ function SearchPane({
           ) : null}
         </div>
         <p className="mt-6 text-sm text-muted">Marcas frecuentes</p>
-        <div className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-4">
+        <div className="mt-3 grid grid-cols-3 gap-2">
           {brands.map((b) => (
             <button
               key={b.id}

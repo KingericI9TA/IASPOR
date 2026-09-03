@@ -335,7 +335,7 @@ export function bumpBrandUsage(id: string) {
 
 const PINNED_BRANDS = ["faac", "aprimatic", "clemsa", "cdvi"] as const;
 
-export function frequentBrands(limit = 15): Brand[] {
+export function frequentBrands(limit = 6): Brand[] {
   const usage = loadBrandUsage();
   const pinned = PINNED_BRANDS.map((id) => BRANDS.find((b) => b.id === id)).filter(
     (b): b is Brand => Boolean(b),

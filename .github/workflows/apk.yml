@@ -16,7 +16,7 @@ permissions:
   actions: write
 
 concurrency:
-  group: apk
+  group: apk-sign
   cancel-in-progress: true
 
 jobs:

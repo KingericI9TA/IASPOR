@@ -12,7 +12,6 @@ import {
   lastClip,
   loadAverias,
   mapsDirUrl,
-  mapsEmbedUrl,
   mapsQuery,
   mapsSearchUrl,
   parseIasporAviso,
@@ -52,6 +51,7 @@ export function AveriasPane({
   const [form, setForm] = useState<AveriaDraft>(EMPTY);
   const [showForm, setShowForm] = useState(false);
   const [pasteBox, setPasteBox] = useState("");
+  const [showPaste, setShowPaste] = useState(false);
 
   const ingestText = useCallback((text: string, { confirm = true } = {}) => {
     const line = extractIasporLine(text);
@@ -121,8 +121,13 @@ export function AveriasPane({
 
   const pegar = async () => {
     const ok = await scanClipboard();
-    if (ok) return;
-    toast.message("Copia el mensaje en WhatsApp y pulsa otra vez, o pégalo abajo");
+    if (ok) {
+      setShowPaste(false);
+      return;
+    }
+    setShowPaste(true);
+    toast.message("Pega el mensaje IASPOR: abajo");
+    window.setTimeout(() => document.getElementById("averia-paste")?.focus(), 50);
   };
 
   const confirmPending = () => {
@@ -182,18 +187,11 @@ export function AveriasPane({
           <IconAverias className="size-5" /> Averías
         </h2>
         <p className="mt-1 text-sm leading-relaxed text-muted">
-          En el grupo:{" "}
-          <span className="font-mono text-xs text-primary">
-            IASPOR: Cliente | Dirección | Población | Teléfono | Avería
-          </span>
-          . Copia el mensaje del grupo y pulsa Pegar aviso.
+          Copia el <span className="font-mono text-xs text-primary">IASPOR:</span> del grupo y pulsa Pegar.
         </p>
       </div>
 
-      <div className="grid grid-cols-3 gap-2">
-        <Button type="button" onClick={() => void pegar()}>
-          Pegar aviso
-        </Button>
+      <div className="grid grid-cols-2 gap-2">
         <Button
           type="button"
           variant="secondary"
@@ -201,51 +199,52 @@ export function AveriasPane({
             setShowForm(true);
             setPending(null);
             setForm(EMPTY);
+            setShowPaste(false);
           }}
         >
           <Plus /> Nueva
         </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          onClick={() => {
-            setPasteBox("");
-            const el = document.getElementById("averia-paste");
-            el?.focus();
-          }}
-        >
-          Pegar aquí
+        <Button type="button" onClick={() => void pegar()}>
+          Pegar
         </Button>
       </div>
 
-      <textarea
-        id="averia-paste"
-        value={pasteBox}
-        onChange={(e) => setPasteBox(e.target.value)}
-        onPaste={(e) => {
-          const t = e.clipboardData.getData("text");
-          if (extractIasporLine(t)) {
-            e.preventDefault();
-            ingestText(t);
-            setPasteBox("");
-          }
-        }}
-        placeholder="Pega aquí: IASPOR: Comunidad | juan alvargonzalez 3 | Gijón | 64539727 | Portón no abre"
-        rows={2}
-        className="w-full resize-y rounded-md border border-primary/25 bg-surface/80 px-3 py-2 font-mono text-sm text-fg placeholder:text-subtle"
-        aria-label="Pegar mensaje IASPOR"
-      />
-      {pasteBox.trim() ? (
-        <Button
-          type="button"
-          size="sm"
-          onClick={() => {
-            if (!ingestText(pasteBox, { confirm: false })) toast.error("El mensaje tiene que empezar por IASPOR:");
-            else setPasteBox("");
-          }}
-        >
-          Crear ficha
-        </Button>
+      {showPaste ? (
+        <>
+          <textarea
+            id="averia-paste"
+            value={pasteBox}
+            onChange={(e) => setPasteBox(e.target.value)}
+            onPaste={(e) => {
+              const t = e.clipboardData.getData("text");
+              if (extractIasporLine(t)) {
+                e.preventDefault();
+                ingestText(t);
+                setPasteBox("");
+                setShowPaste(false);
+              }
+            }}
+            placeholder="IASPOR: Comunidad | juan alvargonzalez 3 | Gijón | 64539727 | Portón no abre"
+            rows={2}
+            className="w-full resize-y rounded-md border border-primary/25 bg-surface/80 px-3 py-2 font-mono text-sm text-fg placeholder:text-subtle"
+            aria-label="Pegar mensaje IASPOR"
+          />
+          {pasteBox.trim() ? (
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => {
+                if (!ingestText(pasteBox, { confirm: false })) toast.error("El mensaje tiene que empezar por IASPOR:");
+                else {
+                  setPasteBox("");
+                  setShowPaste(false);
+                }
+              }}
+            >
+              Crear ficha
+            </Button>
+          ) : null}
+        </>
       ) : null}
 
       {pending ? (
@@ -289,26 +288,27 @@ export function AveriasPane({
         </form>
       ) : null}
 
-      <div className="flex flex-wrap gap-2">
-        {(["todas", ...AVERIA_ESTADOS] as Filter[]).map((id) => (
-          <button
-            key={id}
-            type="button"
-            onClick={() => setFilter(id)}
-            className={cn("chip h-9 min-h-9 px-3", filter === id && "chip-on")}
-          >
-            {id === "todas" ? "Todas" : AVERIA_ESTADO_LABEL[id]} ({counts[id]})
-          </button>
-        ))}
-      </div>
+      {list.length > 0 ? (
+        <>
+          <div className="flex flex-wrap gap-2">
+            {(["todas", ...AVERIA_ESTADOS] as Filter[]).map((id) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setFilter(id)}
+                className={cn("chip h-9 min-h-9 px-3", filter === id && "chip-on")}
+              >
+                {id === "todas" ? "Todas" : AVERIA_ESTADO_LABEL[id]} ({counts[id]})
+              </button>
+            ))}
+          </div>
 
-      {visible.length === 0 ? (
-        <p className="rounded-md hud p-4 text-sm text-muted">
-          No hay averías {filter === "todas" ? "aún" : `en ${AVERIA_ESTADO_LABEL[filter]}`}. Copia un{" "}
-          <span className="font-mono text-primary">IASPOR:</span> del grupo y pégalo.
-        </p>
-      ) : (
-        <ul className="flex flex-col gap-3">
+          {visible.length === 0 ? (
+            <p className="rounded-md hud p-4 text-sm text-muted">
+              No hay averías en {AVERIA_ESTADO_LABEL[filter as AveriaEstado]}.
+            </p>
+          ) : (
+            <ul className="flex flex-col gap-3">
           {visible.map((a) => (
             <li key={a.id} className="rounded-md hud p-3">
               <button
@@ -389,8 +389,10 @@ export function AveriasPane({
               ) : null}
             </li>
           ))}
-        </ul>
-      )}
+            </ul>
+          )}
+        </>
+      ) : null}
     </div>
   );
 }
@@ -425,32 +427,23 @@ function MapsBlock({ query }: { query: string }) {
   const search = mapsSearchUrl(query);
   const dir = mapsDirUrl(query);
   return (
-    <div className="overflow-hidden rounded-md border border-border">
-      <iframe
-        title={`Mapa ${query}`}
-        src={mapsEmbedUrl(query)}
-        className="h-48 w-full bg-raised"
-        loading="lazy"
-        referrerPolicy="no-referrer-when-downgrade"
-      />
-      <div className="grid grid-cols-2 gap-px bg-border">
-        <a
-          href={search}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex min-h-11 items-center justify-center gap-2 bg-surface text-sm text-primary hover:bg-raised"
-        >
-          <MapPin className="size-4" /> Maps
-        </a>
-        <a
-          href={dir}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex min-h-11 items-center justify-center gap-2 bg-surface text-sm text-primary hover:bg-raised"
-        >
-          <Navigation className="size-4" /> Cómo llegar
-        </a>
-      </div>
+    <div className="grid grid-cols-2 gap-2">
+      <a
+        href={search}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="flex min-h-11 items-center justify-center gap-2 rounded-md hud text-sm text-primary"
+      >
+        <MapPin className="size-4" /> Maps
+      </a>
+      <a
+        href={dir}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="flex min-h-11 items-center justify-center gap-2 rounded-md hud text-sm text-primary"
+      >
+        <Navigation className="size-4" /> Cómo llegar
+      </a>
     </div>
   );
 }

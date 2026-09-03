@@ -181,19 +181,9 @@ export function AveriasPane({
         <h2 className="flex items-center gap-2 text-lg font-semibold text-primary">
           <IconAverias className="size-5" /> Averías
         </h2>
-        <p className="mt-1 text-sm leading-relaxed text-muted">
-          En el grupo:{" "}
-          <span className="font-mono text-xs text-primary">
-            IASPOR: Cliente | Dirección | Población | Teléfono | Avería
-          </span>
-          . Copia el mensaje del grupo y pulsa Pegar aviso.
-        </p>
       </div>
 
-      <div className="grid grid-cols-3 gap-2">
-        <Button type="button" onClick={() => void pegar()}>
-          Pegar aviso
-        </Button>
+      <div className="grid grid-cols-2 gap-2">
         <Button
           type="button"
           variant="secondary"
@@ -205,16 +195,8 @@ export function AveriasPane({
         >
           <Plus /> Nueva
         </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          onClick={() => {
-            setPasteBox("");
-            const el = document.getElementById("averia-paste");
-            el?.focus();
-          }}
-        >
-          Pegar aquí
+        <Button type="button" onClick={() => void pegar()}>
+          Pegar
         </Button>
       </div>
 
@@ -230,7 +212,7 @@ export function AveriasPane({
             setPasteBox("");
           }
         }}
-        placeholder="Pega aquí: IASPOR: Comunidad | juan alvargonzalez 3 | Gijón | 64539727 | Portón no abre"
+        placeholder="IASPOR: Cliente | Dirección | Población | Teléfono | Avería"
         rows={2}
         className="w-full resize-y rounded-md border border-primary/25 bg-surface/80 px-3 py-2 font-mono text-sm text-fg placeholder:text-subtle"
         aria-label="Pegar mensaje IASPOR"
@@ -304,8 +286,7 @@ export function AveriasPane({
 
       {visible.length === 0 ? (
         <p className="rounded-md hud p-4 text-sm text-muted">
-          No hay averías {filter === "todas" ? "aún" : `en ${AVERIA_ESTADO_LABEL[filter]}`}. Copia un{" "}
-          <span className="font-mono text-primary">IASPOR:</span> del grupo y pégalo.
+          No hay averías {filter === "todas" ? "aún" : `en ${AVERIA_ESTADO_LABEL[filter]}`}.
         </p>
       ) : (
         <ul className="flex flex-col gap-3">

@@ -1,6 +1,6 @@
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { createServerFn } from "@tanstack/react-start";
-import { publicUrl } from "@/lib/utils";
+import { publicUrl, normalize } from "@/lib/utils";
 
 const SEQ_KEY = "puertadocs:albaran-seq";
 const HIST_KEY = "puertadocs:albaran-hist";
@@ -276,6 +276,64 @@ export function parseImporte(raw: string) {
 export function parseCantidad(raw: string) {
   const n = Number.parseFloat(raw.replace(",", "."));
   return Number.isFinite(n) && n > 0 ? n : 1;
+}
+
+function codigoVal(values: Record<string, string>, ...needles: string[]) {
+  const entries = Object.entries(values);
+  for (const needle of needles) {
+    const n = normalize(needle);
+    if (!n) continue;
+    const exact = entries.find(([k, v]) => v.trim() && normalize(k) === n);
+    if (exact) return exact[1].trim();
+  }
+  for (const needle of needles) {
+    const n = normalize(needle);
+    if (!n) continue;
+    const part = entries.find(([k, v]) => v.trim() && normalize(k).includes(n));
+    if (part) return part[1].trim();
+  }
+  return "";
+}
+
+/** Rellena el albarán con una fila de CODIGOS. */
+export function draftFromCodigo(values: Record<string, string>): Partial<AlbaranDraft> {
+  const cliente = codigoVal(values, "nombre", "cliente", "comunidad", "razon social");
+  const calle = codigoVal(values, "direccion", "calle");
+  const pob = codigoVal(values, "poblacion", "localidad", "municipio");
+  const direccion = [calle, pob].filter(Boolean).join(", ");
+  const telefono = codigoVal(values, "telefono", "tel", "movil", "mail", "email", "correo");
+  const equipo = codigoVal(values, "equipo instalado", "equipo");
+  const ot = codigoVal(values, "ot");
+  const concepto = [equipo, ot ? `OT ${ot}` : ""].filter(Boolean).join(" · ");
+  return {
+    cliente,
+    direccion,
+    telefono,
+    concepto,
+    tipo: "REPARACION",
+  };
+}
+
+const STASH_KEY = "iaspor:albaran-draft";
+
+export function stashAlbaranDraft(partial: Partial<AlbaranDraft>) {
+  try {
+    sessionStorage.setItem(STASH_KEY, JSON.stringify(partial));
+  } catch {
+    /* quota */
+  }
+}
+
+export function takeAlbaranDraft(): Partial<AlbaranDraft> | null {
+  try {
+    const raw = sessionStorage.getItem(STASH_KEY);
+    if (!raw) return null;
+    sessionStorage.removeItem(STASH_KEY);
+    const p = JSON.parse(raw) as Partial<AlbaranDraft>;
+    return p && typeof p === "object" ? p : null;
+  } catch {
+    return null;
+  }
 }
 
 export function euro(n: number) {

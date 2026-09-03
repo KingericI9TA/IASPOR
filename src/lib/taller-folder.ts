@@ -1,9 +1,11 @@
 import { isTallerFile, kindOfFile, mimeForKind } from "@/lib/office-text";
 import { applyEstado, buildEstado, isTrustedEstado, estadoNeedsConfirm, type IasporEstado } from "@/lib/backup";
 import { unzipZip } from "@/lib/zip-store";
+import { peekNextAlbaranNumber, restoreAlbaranBackup } from "@/lib/albaran";
 
 const STATE_FILE = "IASPOR-estado.json";
 const SEQ_FILE = "IASPOR-albaran-n.txt";
+const ALBARANES_DIR = "albaranes";
 const SKIP_FILE = /^IASPOR[-_]/i;
 const KEY = "iaspor:taller-folder";
 const SKIP_DIR = /^(node_modules|\.git|\.trash|__macosx|\.ds_store)$/i;
@@ -455,9 +457,140 @@ export async function pickEsquemasFolder(): Promise<FileSystemDirectoryHandle | 
 }
 
 export async function writeAlbaranPdfToFolder(file: File) {
-  const ok = await writeFileToTallerFolder(file, "albaranes");
-  if (ok) await writeFolderEstado();
-  return ok;
+  const n = Number.parseInt(/(\d{2,})/.exec(file.name)?.[1] ?? "", 10);
+  return commitAlbaranToFolder(file, Number.isFinite(n) ? n : 0);
+}
+
+export function canPickTallerDirectory() {
+  return (
+    typeof window !== "undefined" &&
+    typeof (window as Window & { showDirectoryPicker?: unknown }).showDirectoryPicker === "function"
+  );
+}
+
+export async function pickTallerDirectory(): Promise<FileSystemDirectoryHandle | null> {
+  const picker = (
+    window as Window & {
+      showDirectoryPicker?: (opts?: {
+        id?: string;
+        mode?: string;
+        startIn?: FileSystemHandle | string;
+      }) => Promise<FileSystemDirectoryHandle>;
+    }
+  ).showDirectoryPicker;
+  if (!picker) return null;
+  try {
+    const dir = await picker.call(window, {
+      id: "iaspor-taller",
+      mode: "readwrite",
+      startIn: "documents",
+    });
+    await saveTallerHandle(dir);
+    saveTallerFolder(dir.name || "Carpeta del taller", 0);
+    void requestDurableStorage();
+    return dir;
+  } catch (e) {
+    if (e instanceof DOMException && e.name === "AbortError") return null;
+    return null;
+  }
+}
+
+async function readSeqFile(dir: FileSystemDirectoryHandle): Promise<number> {
+  try {
+    if (!(await ensureMode(dir, "read"))) return 0;
+    const f = await dir.getFileHandle(SEQ_FILE);
+    return Number.parseInt(await (await f.getFile()).text(), 10) || 0;
+  } catch {
+    return 0;
+  }
+}
+
+async function scanAlbaranesPdfMax(root: FileSystemDirectoryHandle): Promise<number> {
+  let max = 0;
+  try {
+    if (!(await ensureMode(root, "read"))) return 0;
+    const dir = await root.getDirectoryHandle(ALBARANES_DIR);
+    for await (const [name] of listDir(dir as DirHandle)) {
+      const m = /albaran[-_\s]*(\d{2,})/i.exec(name);
+      if (m) max = Math.max(max, Number.parseInt(m[1], 10) || 0);
+    }
+  } catch {
+    /* sin carpeta albaranes */
+  }
+  return max;
+}
+
+/** Último número visto en la carpeta (txt + PDFs). null si no hay carpeta. */
+export async function readFolderAlbaranLast(): Promise<number | null> {
+  try {
+    const handle = await loadTallerHandle();
+    if (!handle) return null;
+    if (!(await ensureMode(handle, "read"))) return null;
+    const fromTxt = await readSeqFile(handle);
+    const fromPdf = await scanAlbaranesPdfMax(handle);
+    const fromEstado = Number((await readFolderEstado(handle))?.lastAlbaran) || 0;
+    return Math.max(fromTxt, fromPdf, fromEstado);
+  } catch {
+    return null;
+  }
+}
+
+export async function syncAlbaranNumberFromFolder(): Promise<{ next: number; fromFolder: boolean }> {
+  try {
+    const handle = await loadTallerHandle();
+    if (!handle) return { next: peekNextAlbaranNumber(), fromFolder: false };
+    if (!(await ensureMode(handle, "read"))) return { next: peekNextAlbaranNumber(), fromFolder: false };
+    const fromTxt = await readSeqFile(handle);
+    const fromPdf = await scanAlbaranesPdfMax(handle);
+    const estado = await readFolderEstado(handle);
+    const fromEstado = Number(estado?.lastAlbaran) || 0;
+    const last = Math.max(fromTxt, fromPdf, fromEstado);
+    const records = Array.isArray(estado?.albaranes) ? estado.albaranes : undefined;
+    if (last > 0 || records?.length) {
+      restoreAlbaranBackup({
+        seq: last > 0 ? { last } : undefined,
+        records,
+      });
+    }
+    return { next: peekNextAlbaranNumber(), fromFolder: true };
+  } catch {
+    return { next: peekNextAlbaranNumber(), fromFolder: false };
+  }
+}
+
+async function writeSeqFile(dir: FileSystemDirectoryHandle, n: number) {
+  const nf = await dir.getFileHandle(SEQ_FILE, { create: true });
+  const nw = await nf.createWritable();
+  await nw.write(String(Math.max(0, n)));
+  await nw.close();
+}
+
+export async function commitAlbaranToFolder(file: File, numero: number) {
+  try {
+    const handle = await loadTallerHandle();
+    if (!handle) return false;
+    if (!(await ensureMode(handle, "readwrite"))) return false;
+    if (numero > 0) {
+      try {
+        await writeSeqFile(handle, numero);
+      } catch {
+        /* PDF igual */
+      }
+    }
+    let dir = handle;
+    try {
+      dir = await handle.getDirectoryHandle(ALBARANES_DIR, { create: true });
+    } catch {
+      dir = handle;
+    }
+    const name = numero > 0 ? `Albaran-${numero}.pdf` : file.name;
+    const named = name === file.name ? file : new File([file], name, { type: "application/pdf" });
+    const ok = await writeFileToDirectory(dir, named);
+    if (ok) await writeFolderEstado(handle);
+    return ok;
+  } catch {
+    return false;
+  }
 }
 
 export async function requestDurableStorage() {

@@ -33,6 +33,7 @@ import {
 } from "@/components/cockpit-icons";
 import { PresupuestoPane } from "@/components/presupuesto-pane";
 import { AveriasPane } from "@/components/averias-pane";
+import { loadAverias } from "@/lib/averias";
 import { JarvisConsulta } from "@/components/jarvis";
 import { FaacCatalogViewer } from "@/components/faac-catalog-viewer";
 import { FaacDrawingViewer } from "@/components/faac-drawing-viewer";
@@ -782,6 +783,14 @@ function Home() {
             setOfficeOpen(false);
             setTab("pedido");
           }}
+          onAverias={() => {
+            setOfficeOpen(false);
+            setTab("averias");
+          }}
+          onCarpeta={() => {
+            setOfficeOpen(false);
+            setTab("archivos");
+          }}
           taller={taller}
         />
       ) : null}
@@ -958,6 +967,27 @@ function Home() {
   );
 }
 
+function HomeTile({
+  title,
+  body,
+  onClick,
+}: {
+  title: string;
+  body: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="rounded-md hud flex min-h-[4.6rem] w-full flex-col justify-center p-3 text-left"
+    >
+      <p className="text-xs tracking-[0.14em] text-muted uppercase">{title}</p>
+      <p className="mt-1 font-medium">{body}</p>
+    </button>
+  );
+}
+
 function SearchPane({
   query,
   localHits,
@@ -977,6 +1007,8 @@ function SearchPane({
   onPickFolder,
   pedidoCount,
   onPedido,
+  onAverias,
+  onCarpeta,
   taller,
 }: {
   query: string;
@@ -997,58 +1029,36 @@ function SearchPane({
   onPickFolder?: () => void;
   pedidoCount: number;
   onPedido: () => void;
+  onAverias: () => void;
+  onCarpeta: () => void;
   taller: TallerFolder | null;
 }) {
   if (query.trim().length < 2) {
+    const pendientes = loadAverias().filter((a) => a.estado === "pendiente");
+    const pedidoBody =
+      pedidoCount > 0 ? `${pedidoCount} piezas · abrir y enviar` : "Sin piezas · abrir";
+    const averiaBody =
+      pendientes.length > 0
+        ? `${pendientes.length} ${pendientes.length === 1 ? "aviso" : "avisos"} · ${pendientes[0]!.cliente || "sin nombre"}`
+        : "Ninguna · abrir";
+    const carpetaBody = importing
+      ? `Leyendo… ${progress}%`
+      : taller
+        ? `${library.length} ${library.length === 1 ? "archivo" : "archivos"} · ${taller.name}`
+        : "Tocar para elegir carpeta";
     return (
       <div className="px-5 pt-4">
-        {pedidoCount > 0 ? (
-          <button type="button" onClick={onPedido} className="hit-primary mb-3 w-full rounded-md p-3 text-left">
-            <p className="text-xs tracking-[0.14em] text-muted uppercase">Pedido FAAC pendiente</p>
-            <p className="mt-1 font-medium">{pedidoCount} piezas · abrir y enviar</p>
-          </button>
-        ) : null}
-        <div className="rounded-md hud p-3">
-          <p className="text-sm font-medium">
-            Carpeta del teléfono
-            {taller ? ` · ${taller.name}` : ""}
-          </p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            <Button size="sm" onClick={onPickPdfs} disabled={importing}>
-              {importing ? (
-                <>
-                  <Loader2 className="animate-spin" /> {progress}%
-                </>
-              ) : (
-                <>
-                  <IconArchivos className="size-4" /> Añadir archivos
-                </>
-              )}
-            </Button>
-            {onPickFolder ? (
-              <Button size="sm" variant="secondary" onClick={onPickFolder} disabled={importing}>
-                Elegir carpeta
-              </Button>
-            ) : null}
-          </div>
-          {library.length > 0 ? (
-            <ul className="mt-3 flex flex-col gap-1">
-              {library.slice(0, 4).map((d) => (
-                <li key={d.id}>
-                  <button
-                    type="button"
-                    className="w-full truncate py-1 text-left text-sm hover:text-primary"
-                    onClick={() => onOpenLocal(d)}
-                  >
-                    {d.name}
-                  </button>
-                </li>
-              ))}
-              {library.length > 4 ? (
-                <li className="text-xs text-muted">{library.length - 4} más en Oficina → Archivos</li>
-              ) : null}
-            </ul>
-          ) : null}
+        <div className="grid gap-2">
+          <HomeTile title="Pedido FAAC" body={pedidoBody} onClick={onPedido} />
+          <HomeTile title="Averías pendientes" body={averiaBody} onClick={onAverias} />
+          <HomeTile
+            title="Carpeta del teléfono"
+            body={carpetaBody}
+            onClick={() => {
+              if (!taller && onPickFolder) onPickFolder();
+              else onCarpeta();
+            }}
+          />
         </div>
         <p className="mt-6 text-sm text-muted">Marcas frecuentes</p>
         <div className="mt-3 grid grid-cols-3 gap-2">

@@ -377,17 +377,77 @@ export const fetchFaacDrawing = createServerFn({ method: "POST" })
   })
   .handler(async ({ data }) => drawingWith(data.drawingId, serverGet));
 
-export async function queryFaacSpares(query: string): Promise<SpareSearchResult> {
-  if (typeof window !== "undefined" && isStaticHost()) {
-    return searchWith(query, browserGet, false);
-  }
+const SPARE_CACHE = "iaspor:faac-spares-cache";
+const SPARE_RECENTS = "iaspor:faac-spares-recents";
+const CACHE_MS = 12 * 60 * 60 * 1000;
+
+type SpareCacheFile = { q: string; at: number; hits: SpareHit[] };
+
+function cacheKey(q: string) {
+  return q.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+export function loadSpareRecents(): string[] {
   try {
-    return await searchFaacSpares({ data: { query } });
-  } catch (e) {
-    const fallback = await searchWith(query, browserGet, false);
-    if (fallback.ok) return fallback;
-    return { ok: false, error: faacError(e, fallback.error) };
+    const raw = localStorage.getItem(SPARE_RECENTS);
+    if (!raw) return [];
+    const p = JSON.parse(raw) as string[];
+    return Array.isArray(p) ? p.slice(0, 8) : [];
+  } catch {
+    return [];
   }
+}
+
+function bumpSpareRecent(q: string) {
+  const next = [q, ...loadSpareRecents().filter((x) => x.toLowerCase() !== q.toLowerCase())].slice(0, 8);
+  localStorage.setItem(SPARE_RECENTS, JSON.stringify(next));
+}
+
+export function readSpareCache(query: string): { hits: SpareHit[]; at: number } | null {
+  try {
+    const raw = localStorage.getItem(SPARE_CACHE);
+    if (!raw) return null;
+    const list = JSON.parse(raw) as SpareCacheFile[];
+    const hit = list.find((x) => x.q === cacheKey(query));
+    if (!hit || Date.now() - hit.at > CACHE_MS) return null;
+    return { hits: hit.hits, at: hit.at };
+  } catch {
+    return null;
+  }
+}
+
+function writeSpareCache(query: string, hits: SpareHit[]) {
+  try {
+    const raw = localStorage.getItem(SPARE_CACHE);
+    const list: SpareCacheFile[] = raw ? (JSON.parse(raw) as SpareCacheFile[]) : [];
+    const q = cacheKey(query);
+    const next = [{ q, at: Date.now(), hits }, ...list.filter((x) => x.q !== q)].slice(0, 24);
+    localStorage.setItem(SPARE_CACHE, JSON.stringify(next));
+  } catch {
+    /* quota */
+  }
+}
+
+export async function queryFaacSpares(query: string): Promise<SpareSearchResult> {
+  const q = query.replace(/\s+/g, " ").trim();
+  const run = async (): Promise<SpareSearchResult> => {
+    if (typeof window !== "undefined" && isStaticHost()) {
+      return searchWith(q, browserGet, false);
+    }
+    try {
+      return await searchFaacSpares({ data: { query: q } });
+    } catch (e) {
+      const fallback = await searchWith(q, browserGet, false);
+      if (fallback.ok) return fallback;
+      return { ok: false, error: faacError(e, fallback.error) };
+    }
+  };
+  const res = await run();
+  if (res.ok && res.hits.length) {
+    writeSpareCache(q, res.hits);
+    bumpSpareRecent(q);
+  }
+  return res;
 }
 
 export async function loadFaacDrawing(drawingId: number): Promise<DrawingResult> {

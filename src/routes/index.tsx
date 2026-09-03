@@ -87,6 +87,8 @@ import {
   familyUrl,
   queryFaacSpares,
   resolveFaacDrawingId,
+  readSpareCache,
+  loadSpareRecents,
   type SpareHit,
   type SpareKind,
 } from "@/lib/faac-spares";
@@ -1570,31 +1572,59 @@ function SparesPane({
   const [loading, setLoading] = useState(false);
   const [drawing, setDrawing] = useState<{ id: number; title: string } | null>(null);
   const [pickedId, setPickedId] = useState<string | null>(null);
+  const [cachedAt, setCachedAt] = useState<number | null>(null);
+  const [recents, setRecents] = useState<string[]>(() => loadSpareRecents());
+  const seeded = useRef(false);
 
-  const run = async (term: string) => {
+  const run = async (term: string, opts?: { force?: boolean }) => {
     const trimmed = term.trim();
     if (trimmed.length < 2) return;
     setQ(trimmed);
+    if (!opts?.force) {
+      const cached = readSpareCache(trimmed);
+      if (cached) {
+        setHits(cached.hits);
+        setCachedAt(cached.at);
+        setError(cached.hits.length ? null : "Sin despieces ni recambios para ese modelo.");
+      }
+    }
     setLoading(true);
-    setError(null);
+    if (opts?.force) setError(null);
     try {
       const res = await queryFaacSpares(trimmed);
       if (!res.ok) {
-        setHits([]);
-        setError(res.error);
+        if (!readSpareCache(trimmed)) {
+          setHits([]);
+          setError(res.error);
+        } else {
+          setError(`${res.error} · se muestra la última búsqueda guardada`);
+        }
       } else {
         setHits(res.hits);
+        setCachedAt(null);
+        setRecents(loadSpareRecents());
         if (res.hits.length === 0) {
           setError("Sin despieces ni recambios para ese modelo.");
+        } else {
+          setError(null);
         }
       }
     } catch (e) {
-      setHits([]);
-      setError(friendlyServerError(e, "No se pudo consultar FAAC"));
+      if (!readSpareCache(trimmed)) {
+        setHits([]);
+        setError(friendlyServerError(e, "No se pudo consultar FAAC"));
+      }
     } finally {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (seeded.current) return;
+    seeded.current = true;
+    const start = seed.trim() || loadSpareRecents()[0] || "";
+    if (start.length >= 2) void run(start);
+  }, [seed]);
 
   const openDespiece = async (hit: SpareHit) => {
     if (hit.drawingId) {
@@ -1644,7 +1674,7 @@ function SparesPane({
           >
             spareparts.faacgroup.com
           </a>
-          . Toca un número del explosivo para copiar o añadir al pedido.
+          . Toca un número del explosivo para copiar o añadir al pedido. Las búsquedas se guardan 12 h por si FAAC no responde.
         </p>
       </div>
 
@@ -1652,7 +1682,7 @@ function SparesPane({
         className="flex gap-2"
         onSubmit={(e) => {
           e.preventDefault();
-          void run(q);
+          void run(q, { force: true });
         }}
       >
         <Input
@@ -1666,6 +1696,24 @@ function SparesPane({
           Buscar
         </Button>
       </form>
+
+      {recents.length > 0 ? (
+        <div>
+          <p className="mb-2 text-xs tracking-[0.16em] text-muted uppercase">Recientes</p>
+          <div className="flex flex-wrap gap-2">
+            {recents.map((r) => (
+              <button
+                key={r}
+                type="button"
+                onClick={() => void run(r)}
+                className="h-10 rounded-md border border-primary/25 bg-surface/80 px-3 text-sm hover:text-primary"
+              >
+                {r}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
 
       <div>
         <p className="mb-2 text-xs tracking-[0.16em] text-muted uppercase">Modelos</p>
@@ -1688,7 +1736,17 @@ function SparesPane({
           <Loader2 className="size-4 animate-spin" /> Consultando catálogo FAAC…
         </p>
       ) : null}
-      {error ? <p className="text-sm text-danger">{error}</p> : null}
+      {error ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-sm text-danger">{error}</p>
+          <Button type="button" size="sm" variant="secondary" onClick={() => void run(q, { force: true })} disabled={loading}>
+            Reintentar
+          </Button>
+        </div>
+      ) : null}
+      {cachedAt ? (
+        <p className="text-xs text-muted">Copia local · {formatWhen(cachedAt)}</p>
+      ) : null}
 
       {hits && hits.length > 0 ? (
         <div>

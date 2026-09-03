@@ -13,6 +13,7 @@ on:
 
 permissions:
   contents: write
+  actions: read
 
 concurrency:
   group: apk
@@ -30,6 +31,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+
       - name: Icono IASPOR
         run: |
           sudo apt-get update
@@ -41,43 +43,79 @@ jobs:
             -fill '#f0f6ff' -annotate +0-5 'IASPOR' \
             public/icon-512.png
           convert public/icon-512.png -resize 192x192 public/icon-192.png
+
       - name: Bubblewrap
         run: npm install --global @bubblewrap/cli
+
+      - name: Restaurar keystore
+        uses: actions/cache@v4
+        with:
+          path: |
+            .signing/android-release.keystore
+            .signing/signing.env
+          key: iaspor-android-keystore-v1
+          save-always: true
+
       - name: Configurar y firmar
         env:
-          BUBBLEWRAP_KEYSTORE_PASSWORD: iaspor-taller
-          BUBBLEWRAP_KEY_PASSWORD: iaspor-taller
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          GITHUB_RUN_NUMBER: ${{ github.run_number }}
         run: |
+          set -eu
           export ANDROID_SDK_ROOT="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
           export ANDROID_HOME="$ANDROID_SDK_ROOT"
-          echo "SDK=$ANDROID_SDK_ROOT JAVA=$JAVA_HOME"
-          ls "$ANDROID_SDK_ROOT/cmdline-tools" || true
           if [ ! -e "$ANDROID_SDK_ROOT/cmdline-tools/latest" ]; then
-            ver=$(ls -d "$ANDROID_SDK_ROOT/cmdline-tools"/[0-9]* 2>/dev/null | head -1)
+            ver=$(ls -d "$ANDROID_SDK_ROOT/cmdline-tools"/[0-9]* 2>/dev/null | head -1 || true)
             if [ -n "$ver" ]; then
-              ln -sfn "$(basename "$ver")" "$ANDROID_SDK_ROOT/cmdline-tools/latest" \
-                || { mkdir -p "$HOME/android-sdk/cmdline-tools"
-                     cp -a "$ANDROID_SDK_ROOT/." "$HOME/android-sdk/"
-                     ln -sfn "$(basename "$ver")" "$HOME/android-sdk/cmdline-tools/latest"
-                     export ANDROID_SDK_ROOT="$HOME/android-sdk"
-                     export ANDROID_HOME="$ANDROID_SDK_ROOT"
-                   }
+              ln -sfn "$(basename "$ver")" "$ANDROID_SDK_ROOT/cmdline-tools/latest" || true
             fi
           fi
-          ls -la "$ANDROID_SDK_ROOT/cmdline-tools"
-          if [ ! -e "$ANDROID_SDK_ROOT/tools" ] && [ ! -e "$ANDROID_SDK_ROOT/bin" ]; then
-            ln -sfn cmdline-tools/latest "$ANDROID_SDK_ROOT/tools" \
-              || ln -sfn "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" "$ANDROID_SDK_ROOT/bin" \
-              || true
-          fi
-          ls -la "$ANDROID_SDK_ROOT" | head
-          mkdir -p "$HOME/.bubblewrap" android-twa
+          mkdir -p "$HOME/.bubblewrap" android-twa .signing
           printf '{"jdkPath":"%s","androidSdkPath":"%s"}\n' "$JAVA_HOME" "$ANDROID_SDK_ROOT" > "$HOME/.bubblewrap/config.json"
           cp android/twa-manifest.json android-twa/twa-manifest.json
+
+          NEW_KEY=0
+          if [ -n "${ANDROID_KEYSTORE_BASE64:-}" ]; then
+            echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > .signing/android-release.keystore
+            STORE="${ANDROID_KEYSTORE_PASSWORD:?Falta ANDROID_KEYSTORE_PASSWORD}"
+            KEY="${ANDROID_KEY_PASSWORD:-$STORE}"
+            printf 'STOREPASS=%s\nKEYPASS=%s\n' "$STORE" "$KEY" > .signing/signing.env
+            echo "Firma: secreto de GitHub (permanente)"
+          elif [ -f .signing/android-release.keystore ] && [ -f .signing/signing.env ]; then
+            echo "Firma: keystore persistente (cache de Actions)"
+          else
+            NEW_KEY=1
+            PASS=$(openssl rand -base64 32 | tr -d '/+=\n' | head -c 28)
+            keytool -genkeypair -keystore .signing/android-release.keystore -alias iaspor \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -storepass "$PASS" -keypass "$PASS" \
+              -dname "CN=IASPOR, OU=ASPOR, O=ASPOR Y COSTALES S.L., C=ES"
+            printf 'STOREPASS=%s\nKEYPASS=%s\n' "$PASS" "$PASS" > .signing/signing.env
+            echo "AVISO: se ha creado una keystore nueva. Guarda ANDROID_KEYSTORE_BASE64 y ANDROID_KEYSTORE_PASSWORD como secretos del repo para que el APK se pueda actualizar sin desinstalar."
+          fi
+
+          set -a
+          # shellcheck disable=SC1091
+          . .signing/signing.env
+          set +a
+          export BUBBLEWRAP_KEYSTORE_PASSWORD="$STOREPASS"
+          export BUBBLEWRAP_KEY_PASSWORD="$KEYPASS"
+          cp .signing/android-release.keystore android-twa/android-release.keystore
+
+          python3 - <<'PY'
+          import json, os
+          p = "android-twa/twa-manifest.json"
+          d = json.load(open(p))
+          run = int(os.environ.get("GITHUB_RUN_NUMBER", "1"))
+          d["appVersionCode"] = 20 + run
+          d["appVersionName"] = f"1.1.{run}"
+          json.dump(d, open(p, "w"), indent=2)
+          print("version", d["appVersionName"], "code", d["appVersionCode"])
+          PY
+
           cd android-twa
-          keytool -genkeypair -keystore android-release.keystore -alias iaspor -keyalg RSA -keysize 2048 -validity 10000 \
-            -storepass "$BUBBLEWRAP_KEYSTORE_PASSWORD" -keypass "$BUBBLEWRAP_KEY_PASSWORD" \
-            -dname "CN=IASPOR, OU=ASPOR, O=ASPOR Y COSTALES S.L., C=ES"
           python3 -m http.server 8765 --directory ../public &
           sleep 1
           yes "" | bubblewrap update --skipVersionUpgrade
@@ -85,15 +123,29 @@ jobs:
           bubblewrap build --skipPwaValidation
           cp app-release-signed.apk ../IASPOR.apk
           ls -lh ../IASPOR.apk
+          echo "NEW_KEY=$NEW_KEY" >> "$GITHUB_ENV"
+
       - name: Publicar en Releases
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           tag="apk-1"
+          notes="Instálalo en el teléfono. Luego abre IASPOR y en Archivos elige la carpeta de esquemas.
+
+          Esta firma se reutiliza: puedes actualizar el APK sin desinstalar (si no sale aviso de keystore nueva).
+
+          Para dejarla fija del todo, añade en Settings → Secrets:
+          - ANDROID_KEYSTORE_BASE64 (el .keystore en base64)
+          - ANDROID_KEYSTORE_PASSWORD
+          "
+          if [ "${NEW_KEY:-0}" = "1" ]; then
+            notes="$notes
+
+          AVISO: este build creó una keystore nueva. Si ya tenías IASPOR instalado, hay que desinstalar una vez. Los siguientes builds ya actualizarán encima."
+          fi
           if gh release view "$tag" >/dev/null 2>&1; then
             gh release upload "$tag" IASPOR.apk --clobber
+            gh release edit "$tag" --notes "$notes"
           else
-            gh release create "$tag" IASPOR.apk \
-              --title "IASPOR para el teléfono" \
-              --notes "Instálalo en el teléfono. Luego abre IASPOR y en Archivos elige la carpeta de esquemas, igual que hasta ahora."
+            gh release create "$tag" IASPOR.apk --title "IASPOR para el teléfono" --notes "$notes"
           fi

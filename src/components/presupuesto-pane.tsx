@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { euro, parseImporte } from "@/lib/albaran";
+import { whatsappHref } from "@/lib/faac-pedido";
 import {
   buildCaratulaPdf,
   buildTipoPdf,
@@ -14,9 +15,13 @@ import {
   cachePreFiles,
   loadCachedPreFiles,
   localTipoPreview,
+  matchLocalTipo,
+  LOCAL_TIPOS,
   linesTotal,
   conIva,
   puntoAparte,
+  recordPresupuesto,
+  loadPresupuestoHistory,
   type CaratulaDraft,
   type DriveItem,
   type PreLine,
@@ -50,7 +55,8 @@ export function PresupuestoPane() {
   const [caratula, setCaratula] = useState<File | null>(null);
   const [hojas, setHojas] = useState<File[]>([]);
   const [totalAcum, setTotalAcum] = useState(0);
-  const [offline, setOffline] = useState(false);
+  const [offline, setOffline] = useState(isStaticHost());
+  const [hist, setHist] = useState(() => loadPresupuestoHistory());
   const urls = useRef<string[]>([]);
 
   useEffect(() => {
@@ -65,11 +71,10 @@ export function PresupuestoPane() {
         setFiles(cached);
         setOffline(true);
         setPhase("cliente");
+      } else {
+        setPhase("cliente");
       }
-      if (isStaticHost()) {
-        if (!cached.length) setPhase("cliente");
-        return;
-      }
+      if (isStaticHost()) return;
       try {
         const res = await inspectPresupuestoFolder();
         if (res.files.length) {
@@ -78,7 +83,6 @@ export function PresupuestoPane() {
           setOffline(false);
         }
         setSample(res.sampleAfter);
-        setPhase("cliente");
         void (async () => {
           try {
             const more = await expandPresupuestoFolders();
@@ -91,9 +95,7 @@ export function PresupuestoPane() {
           }
         })();
       } catch {
-        if (!cached.length) {
-          setPhase("cliente");
-        }
+        setOffline(true);
       }
     })();
   }, []);
@@ -113,18 +115,30 @@ export function PresupuestoPane() {
     }
   };
 
+  const aplicarTipo = (name: string) => {
+    const tpl = matchLocalTipo(name);
+    const preview = localTipoPreview(tpl?.name || name);
+    setTipo(tpl?.name || name);
+    setPreview(preview);
+    setCantidades("");
+    setImporte("");
+    setCuerpoTexto(puntoAparte(tpl?.body || preview.text || ""));
+    setLines(tpl?.lines.map((l) => ({ ...l })) ?? [{ qty: "1", desc: draft.concepto || name, amount: "" }]);
+    setPhase("modify");
+  };
+
   const buscarTipo = async () => {
     setBusy(true);
     try {
+      const local = matchLocalTipo(tipo);
+      if (local || isStaticHost() || files.length === 0) {
+        aplicarTipo(tipo);
+        return;
+      }
       const res = await previewPresupuestoTipo({ data: { tipo, files } });
       if (!res.ok) {
-        toast.message("Sin Drive o sin ficha. Plantilla ASPOR local.");
-        setPreview(localTipoPreview(tipo));
-        setCantidades("");
-        setImporte("");
-        setCuerpoTexto("");
-        setLines([{ qty: "1", desc: draft.concepto || tipo, amount: "" }]);
-        setPhase("modify");
+        toast.message("Plantilla ASPOR local.");
+        aplicarTipo(tipo);
         return;
       }
       setPreview(res);
@@ -140,7 +154,8 @@ export function PresupuestoPane() {
       ]);
       setPhase("modify");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "No se encontró el documento");
+      toast.message("Plantilla local");
+      aplicarTipo(tipo);
     } finally {
       setBusy(false);
     }
@@ -216,6 +231,12 @@ export function PresupuestoPane() {
         setCaratula(new File([bytes as BlobPart], "Caratula.pdf", { type: "application/pdf" }));
       }
       setPhase("ready");
+      recordPresupuesto({
+        cliente: draft.cliente,
+        concepto: draft.concepto,
+        total: totalAcum || conIva(linesTotal(lines) || parseImporte(importe)),
+      });
+      setHist(loadPresupuestoHistory());
       toast.success("Presupuesto listo");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "No se pudo generar el PDF");
@@ -343,6 +364,18 @@ export function PresupuestoPane() {
           <Button type="submit" disabled={!draft.cliente.trim()}>
             Siguiente
           </Button>
+          {hist.length > 0 ? (
+            <div className="mt-2">
+              <p className="mb-2 text-xs tracking-[0.16em] text-muted uppercase">Últimos</p>
+              <ul className="flex flex-col gap-1 text-xs text-muted">
+                {hist.slice(0, 5).map((h) => (
+                  <li key={h.numero}>
+                    Nº {h.numero} · {h.cliente} · {euro(h.total).replace(" EUR", " €")}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
         </form>
       ) : null}
 
@@ -391,9 +424,24 @@ export function PresupuestoPane() {
           <p className="text-xs tracking-[0.16em] text-muted uppercase">Tipo de presupuesto</p>
           <p className="text-xs text-muted">
             {hojas.length
-              ? `Carátula + ${hojas.length} hoja${hojas.length === 1 ? "" : "s"}. Añade otra o busca el siguiente tipo.`
-              : "Carátula reservada. Busca por modelo, cliente o carpeta (año/mes)."}
+              ? `Carátula + ${hojas.length} hoja${hojas.length === 1 ? "" : "s"}. Añade otra o elige el siguiente tipo.`
+              : "Carátula reservada. Elige una plantilla o escribe el tipo."}
           </p>
+          <div className="flex flex-wrap gap-2">
+            {LOCAL_TIPOS.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                className={cn("chip h-8 min-h-8 px-3", tipo === t.name && "chip-on")}
+                onClick={() => {
+                  setTipo(t.name);
+                  aplicarTipo(t.name);
+                }}
+              >
+                {t.name}
+              </button>
+            ))}
+          </div>
           {hojas.length > 0 ? (
             <ul className="text-xs text-muted">
               {hojas.map((f) => (
@@ -435,9 +483,7 @@ export function PresupuestoPane() {
                 ))}
             </div>
           ) : (
-            <p className="text-xs text-muted">
-              Si no aparecen fichas, abre la carpeta y ponla como “cualquier persona con el enlace puede ver”.
-            </p>
+            <p className="text-xs text-muted">Plantillas locales ASPOR. Drive solo si hay red y carpeta compartida.</p>
           )}
           <div className="flex gap-2">
             <Button type="button" variant="secondary" onClick={() => setPhase("concepto")}>
@@ -445,7 +491,7 @@ export function PresupuestoPane() {
             </Button>
             <Button type="submit" className="flex-1" disabled={tipo.trim().length < 2 || busy}>
               {busy ? <Loader2 className="animate-spin" /> : null}
-              Buscar documento
+              Usar plantilla
             </Button>
           </div>
           {hojas.length > 0 ? (
@@ -600,6 +646,17 @@ export function PresupuestoPane() {
               <Download /> Descargar
             </Button>
           </div>
+          <Button
+            className="mt-2 w-full"
+            variant="secondary"
+            onClick={() => {
+              const total = euro(totalAcum || totalVista).replace(" EUR", " €");
+              const text = `Presupuesto ASPOR · ${draft.cliente}\n${draft.concepto}\nTotal ${total}`;
+              window.open(whatsappHref("", text), "_blank", "noopener,noreferrer");
+            }}
+          >
+            WhatsApp
+          </Button>
           <Button className="mt-3 w-full" variant="secondary" onClick={reset}>
             Nuevo presupuesto
           </Button>

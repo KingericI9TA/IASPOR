@@ -58,6 +58,17 @@ export function loadCachedPreFiles(): DriveItem[] {
 
 export function localTipoPreview(tipo: string): TipoPreview {
   const name = tipo.trim() || "Presupuesto";
+  const tpl = matchLocalTipo(name);
+  if (tpl) {
+    return {
+      ok: true,
+      file: { id: tpl.id, name: tpl.name },
+      text: tpl.body,
+      images: [],
+      cantidadesHint: tpl.lines[0]?.desc ?? "",
+      totalHint: "",
+    };
+  }
   return {
     ok: true,
     file: { id: "local", name },
@@ -66,6 +77,133 @@ export function localTipoPreview(tipo: string): TipoPreview {
     cantidadesHint: "",
     totalHint: "",
   };
+}
+
+export type LocalTipo = {
+  id: string;
+  name: string;
+  body: string;
+  lines: { qty: string; desc: string; amount: string }[];
+};
+
+export const LOCAL_TIPOS: LocalTipo[] = [
+  {
+    id: "batiente",
+    name: "Cancela batiente",
+    body: "Suministro e instalación de automatismo para cancela batiente, incluyendo operadores, central, fotocélulas, lámpara y mandos. Presupuesto supeditado a vista de obra.",
+    lines: [
+      { qty: "1", desc: "Kit motor batiente (operadores + central)", amount: "" },
+      { qty: "1", desc: "Par de fotocélulas + lámpara destellante", amount: "" },
+      { qty: "2", desc: "Mandos", amount: "" },
+      { qty: "1", desc: "Mano de obra e instalación", amount: "" },
+    ],
+  },
+  {
+    id: "corredera",
+    name: "Cancela corredera",
+    body: "Suministro e instalación de motor para cancela corredera, cremallera, central, fotocélulas y mandos. Presupuesto supeditado a vista de obra.",
+    lines: [
+      { qty: "1", desc: "Motor corredera + central", amount: "" },
+      { qty: "4", desc: "Cremallera (m)", amount: "" },
+      { qty: "1", desc: "Par de fotocélulas + lámpara", amount: "" },
+      { qty: "2", desc: "Mandos", amount: "" },
+      { qty: "1", desc: "Mano de obra e instalación", amount: "" },
+    ],
+  },
+  {
+    id: "seccional",
+    name: "Puerta seccional / garaje",
+    body: "Suministro e instalación de motor de techo para puerta seccional, raíl, mandos y fotocélulas si procede.",
+    lines: [
+      { qty: "1", desc: "Motor de techo + raíl", amount: "" },
+      { qty: "2", desc: "Mandos", amount: "" },
+      { qty: "1", desc: "Mano de obra e instalación", amount: "" },
+    ],
+  },
+  {
+    id: "barrera",
+    name: "Barrera",
+    body: "Suministro e instalación de barrera automática, brazo, loop o fotocélulas y semáforo si procede.",
+    lines: [
+      { qty: "1", desc: "Barrera + brazo", amount: "" },
+      { qty: "1", desc: "Accesorios de seguridad", amount: "" },
+      { qty: "1", desc: "Mano de obra e instalación", amount: "" },
+    ],
+  },
+  {
+    id: "videoportero",
+    name: "Videoportero / acceso",
+    body: "Suministro e instalación de videoportero o control de acceso (placa, monitor, cerradero).",
+    lines: [
+      { qty: "1", desc: "Placa de calle", amount: "" },
+      { qty: "1", desc: "Monitor / terminal", amount: "" },
+      { qty: "1", desc: "Cerradero / electroimán", amount: "" },
+      { qty: "1", desc: "Mano de obra e instalación", amount: "" },
+    ],
+  },
+  {
+    id: "mantenimiento",
+    name: "Mantenimiento anual",
+    body: "Contrato de mantenimiento: revisión de operadores, central, fotocélulas, mandos y engrase. Una visita anual salvo aviso contrario.",
+    lines: [{ qty: "1", desc: "Mantenimiento anual de automatismo", amount: "" }],
+  },
+  {
+    id: "recambios",
+    name: "Recambios / reparación",
+    body: "Suministro de recambios e intervención de reparación. Detallar códigos FAAC en las líneas.",
+    lines: [
+      { qty: "1", desc: "Recambio (código / descripción)", amount: "" },
+      { qty: "1", desc: "Mano de obra", amount: "" },
+    ],
+  },
+];
+
+export function matchLocalTipo(q: string): LocalTipo | undefined {
+  const n = norm(q);
+  if (!n) return undefined;
+  return LOCAL_TIPOS.find(
+    (t) => n.includes(norm(t.name)) || norm(t.name).includes(n) || n === t.id || n.includes(t.id),
+  );
+}
+
+const PRE_HIST = "iaspor:pre-hist";
+const PRE_SEQ = "iaspor:pre-seq";
+
+export type PresupuestoRecord = {
+  numero: number;
+  at: number;
+  cliente: string;
+  concepto: string;
+  total: number;
+};
+
+export function peekPresupuestoNumero() {
+  const n = Number(localStorage.getItem(PRE_SEQ) || "0");
+  return (Number.isFinite(n) ? n : 0) + 1;
+}
+
+export function takePresupuestoNumero() {
+  const n = peekPresupuestoNumero();
+  localStorage.setItem(PRE_SEQ, String(n));
+  return n;
+}
+
+export function loadPresupuestoHistory(): PresupuestoRecord[] {
+  try {
+    const raw = localStorage.getItem(PRE_HIST);
+    if (!raw) return [];
+    const p = JSON.parse(raw) as PresupuestoRecord[];
+    return Array.isArray(p) ? p.slice(0, 20) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function recordPresupuesto(rec: Omit<PresupuestoRecord, "numero" | "at"> & { numero?: number }) {
+  const numero = rec.numero ?? takePresupuestoNumero();
+  const row: PresupuestoRecord = { numero, at: Date.now(), cliente: rec.cliente, concepto: rec.concepto, total: rec.total };
+  localStorage.setItem(PRE_HIST, JSON.stringify([row, ...loadPresupuestoHistory()].slice(0, 20)));
+  return row;
 }
 
 function norm(s: string) {

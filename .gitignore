@@ -17,3 +17,5 @@ AGENTS.project.md
 android-twa
 *.keystore
 *.jks
+
+.signing/

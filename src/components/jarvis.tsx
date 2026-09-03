@@ -1,22 +1,50 @@
 import { useState } from "react";
+import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { IconJarvis } from "@/components/cockpit-icons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { jarvisWebUrl } from "@/lib/jarvis";
+import { askJarvisClient, jarvisWebUrl } from "@/lib/jarvis";
+
+type Msg = { role: "user" | "jarvis"; text: string; source?: "grok" | "campo" };
 
 export function JarvisConsulta({ seed = "" }: { seed?: string }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msgs, setMsgs] = useState<Msg[]>([]);
 
   const question = q.trim() || seed.trim();
 
-  const openGrok = () => {
+  const ask = async () => {
     if (question.length < 2) {
       toast.message("Escribe qué quieres consultar");
       return;
     }
-    window.open(jarvisWebUrl(question), "_blank", "noopener,noreferrer");
+    setBusy(true);
+    setMsgs((prev) => [...prev, { role: "user", text: question }]);
+    setQ("");
+    try {
+      const res = await askJarvisClient(question);
+      if (!res.ok) {
+        toast.error(res.error);
+        return;
+      }
+      setMsgs((prev) => [...prev, { role: "jarvis", text: res.text, source: res.source }]);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Jarvis no respondió");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const openGrok = () => {
+    const text = question || msgs.filter((m) => m.role === "user").at(-1)?.text || "";
+    if (text.length < 2) {
+      toast.message("Escribe qué quieres consultar");
+      return;
+    }
+    window.open(jarvisWebUrl(text), "_blank", "noopener,noreferrer");
   };
 
   return (
@@ -42,15 +70,50 @@ export function JarvisConsulta({ seed = "" }: { seed?: string }) {
                 <IconJarvis className="size-6" />
                 Jarvis
               </p>
-              <Button type="button" variant="secondary" size="sm" onClick={() => setOpen(false)}>
-                Cerrar
-              </Button>
+              <div className="flex gap-2">
+                <Button type="button" variant="secondary" size="sm" onClick={openGrok}>
+                  Abrir Grok
+                </Button>
+                <Button type="button" variant="secondary" size="sm" onClick={() => setOpen(false)}>
+                  Cerrar
+                </Button>
+              </div>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto rounded-md hud p-3 flex flex-col gap-3">
+              {msgs.length === 0 ? (
+                <p className="text-sm leading-relaxed text-muted">
+                  Pregunta en campo: modelo, placa y síntoma. Ej. “FAAC 746 no cierra, error 3”.
+                  Responde aquí; Grok queda por si hace falta más.
+                </p>
+              ) : null}
+              {msgs.map((m, i) => (
+                <div
+                  key={`${m.role}-${i}`}
+                  className={
+                    m.role === "user"
+                      ? "self-end max-w-[92%] rounded-md bg-primary/15 px-3 py-2 text-sm"
+                      : "self-start max-w-[92%] rounded-md bg-raised px-3 py-2 text-sm whitespace-pre-wrap"
+                  }
+                >
+                  {m.role === "jarvis" && m.source ? (
+                    <p className="mb-1 text-[0.65rem] tracking-[0.14em] text-muted uppercase">
+                      {m.source === "grok" ? "Grok" : "Campo"}
+                    </p>
+                  ) : null}
+                  {m.text}
+                </div>
+              ))}
+              {busy ? (
+                <p className="flex items-center gap-2 text-sm text-muted">
+                  <Loader2 className="size-4 animate-spin" /> Pensando…
+                </p>
+              ) : null}
             </div>
             <form
               className="flex gap-2"
               onSubmit={(e) => {
                 e.preventDefault();
-                openGrok();
+                void ask();
               }}
             >
               <Input
@@ -60,7 +123,10 @@ export function JarvisConsulta({ seed = "" }: { seed?: string }) {
                 aria-label="Pregunta para Jarvis"
                 autoFocus
               />
-              <Button type="submit">Buscar</Button>
+              <Button type="submit" disabled={busy}>
+                {busy ? <Loader2 className="animate-spin" /> : null}
+                Preguntar
+              </Button>
             </form>
           </div>
         </div>

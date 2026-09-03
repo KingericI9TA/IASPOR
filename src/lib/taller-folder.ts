@@ -1,6 +1,6 @@
 import { isTallerFile, kindOfFile, mimeForKind } from "@/lib/office-text";
 import { applyEstado, buildEstado, isTrustedEstado, estadoNeedsConfirm, type IasporEstado } from "@/lib/backup";
-import { unzipStore } from "@/lib/zip-store";
+import { unzipZip } from "@/lib/zip-store";
 
 const STATE_FILE = "IASPOR-estado.json";
 const SEQ_FILE = "IASPOR-albaran-n.txt";
@@ -102,7 +102,7 @@ async function ensureRead(handle: FileSystemHandle) {
 
 export async function filesFromZip(buf: ArrayBuffer, prefix = "") {
   const out: File[] = [];
-  for (const e of unzipStore(buf)) {
+  for (const e of await unzipZip(buf)) {
     if (!e.name || e.name.endsWith("/")) continue;
     const parts = e.name.split("/").filter((p) => p && !SKIP_DIR.test(p));
     if (parts.length !== e.name.split("/").filter(Boolean).length) continue;

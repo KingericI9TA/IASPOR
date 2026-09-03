@@ -161,11 +161,11 @@ const CACHE_MS = 24 * 60 * 60 * 1000;
 
 type LocalTable = { name: string; sourceId: "a" | "b" | "local"; headers: string[]; rows: Record<string, string>[] };
 
-export function ingestLocalCodes(fileName: string, text: string) {
+export function ingestLocalCodes(fileName: string, text: string, opts?: { local?: boolean }) {
   const parsed = parseCsv(text);
   if (parsed.rows.length === 0) return 0;
-  const sourceId = sourceIdForFileName(fileName);
-  const name = displayCodigosName(fileName);
+  const sourceId = opts?.local ? "local" : sourceIdForFileName(fileName);
+  const name = opts?.local ? fileName.replace(/\.(xlsx|xlsm|xls|csv|tsv|txt)$/i, "").slice(0, 80) : displayCodigosName(fileName);
   const tables: LocalTable[] = loadLocalTables().filter((t) => t.name !== name && t.name !== fileName);
   tables.unshift({
     name,
@@ -249,26 +249,25 @@ async function serverGet(url: string) {
 
 async function browserGetCsv(url: string) {
   const jina = `https://r.jina.ai/${url}`;
-  const sources = [url, jina, `https://proxy.cors.sh/${url}`, `https://proxy.corsfix.com/?${url}`];
-  const errors: string[] = [];
-  for (const src of sources) {
-    try {
-      const res = await fetch(src, {
-        redirect: "follow",
-        headers: src.includes("r.jina.ai") ? { "X-Return-Format": "text" } : undefined,
-        signal: AbortSignal.timeout(src.includes("r.jina.ai") ? 22_000 : 10_000),
-      });
-      if (!res.ok) {
-        errors.push(String(res.status));
-        continue;
-      }
-      const text = unwrapReader(await res.text());
-      if (looksLikeTable(text)) return text;
-    } catch (e) {
-      errors.push(e instanceof Error ? e.message : "red");
-    }
+  const cors = [`https://proxy.cors.sh/${url}`, `https://proxy.corsfix.com/?${url}`];
+  const sources = typeof window !== "undefined" && isStaticHost() ? [jina, ...cors] : [url, jina, ...cors];
+  try {
+    return await Promise.any(
+      sources.map(async (src) => {
+        const res = await fetch(src, {
+          redirect: "follow",
+          headers: src.includes("r.jina.ai") ? { "X-Return-Format": "text" } : undefined,
+          signal: AbortSignal.timeout(src.includes("r.jina.ai") ? 14_000 : 7_000),
+        });
+        if (!res.ok) throw new Error(String(res.status));
+        const text = unwrapReader(await res.text());
+        if (!looksLikeTable(text)) throw new Error("no table");
+        return text;
+      }),
+    );
+  } catch {
+    throw new Error("No se pudo leer CODIGOS.");
   }
-  throw new Error(errors.some((x) => /401|403/.test(x)) ? "El archivo es privado." : "No se pudo leer CODIGOS.");
 }
 
 async function tableFromSource(source: CodeSource, getText: (url: string) => Promise<string>): Promise<CodeTable> {
@@ -303,16 +302,22 @@ export const fetchCodeTables = createServerFn({ method: "POST" }).handler(async 
 
 type CacheFile = { at: number; tables: CodeTable[] };
 
-function readCodeCache(): CacheFile | null {
+export function peekCodeCache(): CacheFile | null {
   try {
     const raw = localStorage.getItem(CACHE_KEY);
     if (!raw) return null;
     const p = JSON.parse(raw) as CacheFile;
-    if (!p?.tables?.length || Date.now() - p.at > CACHE_MS) return null;
+    if (!p?.tables?.length) return null;
     return p;
   } catch {
     return null;
   }
+}
+
+function readCodeCache(): CacheFile | null {
+  const p = peekCodeCache();
+  if (!p || Date.now() - p.at > CACHE_MS) return null;
+  return p;
 }
 
 function writeCodeCache(tables: CodeTable[]) {
@@ -325,8 +330,13 @@ function writeCodeCache(tables: CodeTable[]) {
   }
 }
 
-export async function queryCodeTables(): Promise<{ ok: true; tables: CodeTable[]; cached?: boolean }> {
+export async function queryCodeTables(opts?: {
+  force?: boolean;
+}): Promise<{ ok: true; tables: CodeTable[]; cached?: boolean }> {
   const cached = typeof window !== "undefined" ? readCodeCache() : null;
+  if (cached && !opts?.force) return { ok: true, tables: cached.tables, cached: true };
+
+  const stale = typeof window !== "undefined" ? peekCodeCache() : null;
   const run = async () => {
     if (typeof window !== "undefined" && isStaticHost()) {
       return {
@@ -347,14 +357,43 @@ export async function queryCodeTables(): Promise<{ ok: true; tables: CodeTable[]
   try {
     const res = await run();
     if (res.tables.some((t) => t.rows.length)) writeCodeCache(res.tables);
-    if (res.tables.every((t) => t.error) && cached) {
-      return { ok: true, tables: cached.tables, cached: true };
+    if (res.tables.every((t) => t.error) && stale?.tables.length) {
+      return { ok: true, tables: stale.tables, cached: true };
     }
     return res;
   } catch {
-    if (cached) return { ok: true, tables: cached.tables, cached: true };
+    if (stale?.tables.length) return { ok: true, tables: stale.tables, cached: true };
     throw new Error("No se pudo leer CODIGOS ni CODIGOS HASTA 99");
   }
+}
+
+const SEEN_EXCEL = "iaspor:excel-seen";
+
+function excelSeenKey(file: File) {
+  return `${file.name}|${file.size}|${file.lastModified}`;
+}
+
+function loadExcelSeen(): string[] {
+  try {
+    const raw = localStorage.getItem(SEEN_EXCEL);
+    const p = raw ? (JSON.parse(raw) as string[]) : [];
+    return Array.isArray(p) ? p : [];
+  } catch {
+    return [];
+  }
+}
+
+export function markExcelSeen(file: File) {
+  const next = [excelSeenKey(file), ...loadExcelSeen().filter((k) => k !== excelSeenKey(file))].slice(0, 40);
+  try {
+    localStorage.setItem(SEEN_EXCEL, JSON.stringify(next));
+  } catch {
+    /* quota */
+  }
+}
+
+export function alreadyIngestedExcel(file: File) {
+  return loadExcelSeen().includes(excelSeenKey(file));
 }
 
 export async function ingestCodigosFromFolder(dir: FileSystemDirectoryHandle) {
@@ -362,18 +401,25 @@ export async function ingestCodigosFromFolder(dir: FileSystemDirectoryHandle) {
   const { collectMatchingFiles } = await import("./taller-folder");
   const files = await collectMatchingFiles(dir, (file) => isCodigosFileName(file.name), 8);
   let total = 0;
-  for (const file of files) {
-    try {
-      const kind = kindOfFile(file);
-      const text =
-        kind === "csv"
-          ? await file.text()
-          : kind
-            ? await extractOfficeText(file)
-            : await file.text();
-      total += ingestLocalCodes(file.name, text);
-    } catch {
-      /* xls binario: Drive cubre esos dos archivos */
+  const extracted: { file: File; text: string }[] = [];
+  await Promise.all(
+    files.map(async (file) => {
+      if (alreadyIngestedExcel(file)) return;
+      try {
+        const kind = kindOfFile(file);
+        const text =
+          kind === "csv" ? await file.text() : kind ? await extractOfficeText(file) : await file.text();
+        extracted.push({ file, text });
+      } catch {
+        /* xls binario: Drive cubre esos dos archivos */
+      }
+    }),
+  );
+  for (const { file, text } of extracted) {
+    const n = ingestLocalCodes(file.name, text);
+    if (n) {
+      total += n;
+      markExcelSeen(file);
     }
   }
   return { files: files.length, rows: total };

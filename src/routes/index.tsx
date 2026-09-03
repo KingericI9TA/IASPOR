@@ -54,9 +54,12 @@ import {
   ingestCodigosFromFolder,
   loadLocalCodeRows,
   queryCodeTables,
+  peekCodeCache,
   searchCodeRows,
   sheetUrl,
   isCodigosFileName,
+  alreadyIngestedExcel,
+  markExcelSeen,
   type CodeRow,
 } from "@/lib/codigos";
 import {
@@ -153,7 +156,7 @@ import {
   loadTallerHandle,
   type TallerFolder,
 } from "@/lib/taller-folder";
-import { extractOfficeText, kindOfFile } from "@/lib/office-text";
+import { extractOfficeText, kindOfFile, runPool } from "@/lib/office-text";
 import { cn, copyToClipboard, formatBytes, formatWhen } from "@/lib/utils";
 import { AppErrorComponent } from "@/lib/error-component";
 
@@ -439,41 +442,64 @@ function Home() {
         .sort((a, b) => Number(isCodigosFileName(b.name)) - Number(isCodigosFileName(a.name)))
         .slice(0, BATCH);
       const addedDocs: LibraryDoc[] = [];
-      for (let i = 0; i < list.length; i++) {
-        const file = list[i];
+      const done = { n: 0 };
+      const codeQueue: { file: File; text: string }[] = [];
+      const isSheet = (f: File) => {
+        const k = kindOfFile(f);
+        return k === "excel" || k === "csv" || isCodigosFileName(f.name);
+      };
+      const sheets = list.filter(isSheet);
+      const others = list.filter((f) => !isSheet(f));
+
+      const handleOne = async (file: File, delay: boolean) => {
         const kind = kindOfFile(file);
         if (!kind) {
-          if (isCodigosFileName(file.name)) {
+          if (isCodigosFileName(file.name) && !alreadyIngestedExcel(file)) {
             try {
               const text = await file.text();
-              const n = ingestLocalCodes(file.name, text);
-              if (n) codes += n;
-              else skipped += 1;
+              codeQueue.push({ file, text });
             } catch {
               skipped += 1;
             }
-            continue;
-          }
-          skipped += 1;
-          continue;
+          } else if (!isCodigosFileName(file.name)) skipped += 1;
+          done.n += 1;
+          setProgress(Math.round((done.n / list.length) * 100));
+          return;
         }
         const name = file.name.replace(/\.(pdf|docx|xlsx|xlsm|csv|tsv|txt)$/i, "");
-        if (known.has(libraryKey(name, file.size))) {
-          already += 1;
-          continue;
+        const inLib = known.has(libraryKey(name, file.size));
+        if (inLib) already += 1;
+        const wantCodes = isCodigosFileName(file.name) && (kind === "excel" || kind === "csv") && !alreadyIngestedExcel(file);
+        if (inLib && !wantCodes) {
+          done.n += 1;
+          setProgress(Math.round((done.n / list.length) * 100));
+          return;
         }
         try {
-          setProgress(Math.round(((i + 1) / list.length) * 100));
           const text = await extractOfficeText(file);
-          const doc = await savePdf(file, text, kind);
-          known.add(libraryKey(doc.name, doc.size));
-          addedDocs.push(doc);
-          added += 1;
-          if (kind === "excel" || kind === "csv") codes += ingestLocalCodes(file.name, text);
+          if (!inLib) {
+            const doc = await savePdf(file, text, kind);
+            known.add(libraryKey(doc.name, doc.size));
+            addedDocs.push(doc);
+            added += 1;
+          }
+          if (wantCodes) codeQueue.push({ file, text });
         } catch {
           skipped += 1;
         }
-        if (i % 2 === 1) await new Promise<void>((r) => window.setTimeout(r, 50));
+        done.n += 1;
+        setProgress(Math.round((done.n / list.length) * 100));
+        if (delay) await new Promise<void>((r) => window.setTimeout(r, 30));
+      };
+
+      await runPool(sheets, 4, (file) => handleOne(file, false));
+      for (const file of others) await handleOne(file, true);
+      for (const item of codeQueue) {
+        const n = ingestLocalCodes(item.file.name, item.text);
+        if (n) {
+          codes += n;
+          markExcelSeen(item.file);
+        }
       }
       if (addedDocs.length) {
         setLibrary((prev) => {
@@ -2165,42 +2191,56 @@ function CodesPane() {
     setField((cur) => (cur && !cols.includes(cur) ? "" : cur));
   };
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setStatus("Leyendo CODIGOS y CODIGOS HASTA 99…");
-    try {
-      const dir = await loadTallerHandle();
-      if (dir) {
-        try {
-          await ingestCodigosFromFolder(dir);
-        } catch {
-          /* carpeta sin permiso en este momento */
-        }
-      }
-      const res = await queryCodeTables();
-      const local = loadLocalCodeRows();
-      const remoteOk = new Set(res.tables.filter((t) => t.rows.length).map((t) => t.sourceId));
-      const extraLocal = local.rows.filter((r) => r.sourceId === "local" || !remoteOk.has(r.sourceId));
-      const allRows = [...res.tables.flatMap((t) => t.rows), ...extraLocal];
-      const cols = [
-        ...new Set([...res.tables.flatMap((t) => t.headers), ...local.headers]),
-      ];
+  const load = useCallback(async (force = false) => {
+    const paint = (
+      tables: { sourceId: string; sourceName: string; headers: string[]; rows: CodeRow[]; error?: string }[],
+      extra: CodeRow[],
+      extraHeaders: string[],
+      cached?: boolean,
+    ) => {
+      const remoteOk = new Set(tables.filter((t) => t.rows.length).map((t) => t.sourceId));
+      const extraLocal = extra.filter((r) => r.sourceId === "local" || !remoteOk.has(r.sourceId));
+      const allRows = [...tables.flatMap((t) => t.rows), ...extraLocal];
+      const cols = [...new Set([...tables.flatMap((t) => t.headers), ...extraHeaders])];
       setNames({
-        a: res.tables.find((t) => t.sourceId === "a")?.sourceName ?? CODE_SOURCES[0].name,
-        b: res.tables.find((t) => t.sourceId === "b")?.sourceName ?? CODE_SOURCES[1].name,
+        a: tables.find((t) => t.sourceId === "a")?.sourceName ?? CODE_SOURCES[0].name,
+        b: tables.find((t) => t.sourceId === "b")?.sourceName ?? CODE_SOURCES[1].name,
       });
-      const errs = res.tables.filter((t) => t.error).map((t) => `${t.sourceName}: ${t.error}`);
+      const errs = tables.filter((t) => t.error).map((t) => `${t.sourceName}: ${t.error}`);
       const counts = [
-        ...res.tables.filter((t) => t.rows.length).map((t) => `${t.sourceName} (${t.rows.length})`),
+        ...tables.filter((t) => t.rows.length).map((t) => `${t.sourceName} (${t.rows.length})`),
         ...(extraLocal.length ? [`Excel local (${extraLocal.length})`] : []),
       ];
-      const stale = res.cached ? "copia guardada · " : "";
       applyRows(
         allRows,
         cols,
-        [...(counts.length ? [`${stale}${counts.join(" · ")}`] : []), ...errs].join(" ") ||
+        [...(counts.length ? [`${cached ? "listo · " : ""}${counts.join(" · ")}`] : []), ...errs].join(" ") ||
           "Sin datos. Añade el Excel CODIGOS o recarga.",
       );
+    };
+
+    const cached = peekCodeCache();
+    if (cached?.tables.length) {
+      paint(cached.tables, loadLocalCodeRows().rows, loadLocalCodeRows().headers, true);
+      if (force) {
+        setLoading(true);
+        setStatus("Actualizando CODIGOS…");
+      }
+    } else {
+      setLoading(true);
+      setStatus("Leyendo CODIGOS y CODIGOS HASTA 99…");
+    }
+
+    try {
+      const dirP = loadTallerHandle()
+        .then(async (dir) => {
+          if (dir) await ingestCodigosFromFolder(dir);
+        })
+        .catch(() => undefined);
+      const resP = queryCodeTables({ force });
+      const [res] = await Promise.all([resP, dirP]);
+      const local = loadLocalCodeRows();
+      paint(res.tables, local.rows, local.headers, res.cached);
     } catch (e) {
       const local = loadLocalCodeRows();
       if (local.rows.length) {
@@ -2209,7 +2249,7 @@ function CodesPane() {
           local.headers,
           `${local.rows.length} filas del teléfono. Drive no respondió.`,
         );
-      } else {
+      } else if (!cached?.tables.length) {
         applyRows([], [], friendlyServerError(e, "No se pudieron leer CODIGOS. Añade el Excel."));
       }
     } finally {
@@ -2231,9 +2271,19 @@ function CodesPane() {
     setLoading(true);
     try {
       let n = 0;
-      for (const file of [...files]) {
-        const text = kindOfFile(file) === "csv" ? await file.text() : await extractOfficeText(file);
-        n += ingestLocalCodes(file.name, text);
+      const list = [...files];
+      const extracted: { file: File; text: string }[] = [];
+      await runPool(list, 3, async (file) => {
+        const kind = kindOfFile(file);
+        const text = kind === "csv" ? await file.text() : await extractOfficeText(file);
+        extracted.push({ file, text });
+      });
+      for (const { file, text } of extracted) {
+        const rows = ingestLocalCodes(file.name, text, { local: true });
+        if (rows) {
+          n += rows;
+          markExcelSeen(file);
+        }
       }
       toast.success(n ? `Códigos: ${n} filas` : "Ese archivo no tenía filas");
       await load();
@@ -2319,7 +2369,7 @@ function CodesPane() {
       </form>
 
       <div className="grid grid-cols-2 gap-2">
-        <Button onClick={() => void load()} disabled={loading} variant="secondary">
+        <Button onClick={() => void load(true)} disabled={loading} variant="secondary">
           {loading ? <Loader2 className="animate-spin" /> : <RefreshCw />}
           Recargar
         </Button>

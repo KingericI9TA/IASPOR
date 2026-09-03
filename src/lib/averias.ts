@@ -121,35 +121,6 @@ export function mapsEmbedUrl(query: string) {
   return `https://maps.google.com/maps?q=${encodeURIComponent(query)}&hl=es&z=16&output=embed`;
 }
 
-/** Enlace que sí abre la app en el teléfono (WhatsApp o Business). */
-export function whatsAppLaunch() {
-  const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
-  if (/android/i.test(ua)) {
-    return {
-      href: "intent://send/#Intent;scheme=whatsapp;S.browser_fallback_url=https%3A%2F%2Fwa.me%2F;end",
-      target: undefined as string | undefined,
-    };
-  }
-  if (/iphone|ipad|ipod/i.test(ua)) {
-    return { href: "https://wa.me/", target: "_blank" as string | undefined };
-  }
-  return { href: "https://web.whatsapp.com/", target: "_blank" as string | undefined };
-}
-
-export function whatsAppLaunchHref() {
-  return whatsAppLaunch().href;
-}
-
-export function openWhatsAppApp() {
-  const { href, target } = whatsAppLaunch();
-  if (!target) {
-    window.location.assign(href);
-    return;
-  }
-  const win = window.open(href, target, "noopener,noreferrer");
-  if (!win) window.location.assign(href);
-}
-
 function clampList(list: Averia[]) {
   return list
     .slice()

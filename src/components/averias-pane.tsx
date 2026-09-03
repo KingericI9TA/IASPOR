@@ -1,4 +1,4 @@
-import { MapPin, MessageCircle, Navigation, Phone, Plus, Trash2 } from "lucide-react";
+import { MapPin, Navigation, Phone, Plus, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { IconAverias } from "@/components/cockpit-icons";
@@ -21,7 +21,6 @@ import {
   rememberClip,
   removeAveria,
   upsertAveria,
-  whatsAppLaunch,
   type Averia,
   type AveriaDraft,
   type AveriaEstado,
@@ -53,12 +52,6 @@ export function AveriasPane({
   const [form, setForm] = useState<AveriaDraft>(EMPTY);
   const [showForm, setShowForm] = useState(false);
   const [pasteBox, setPasteBox] = useState("");
-  const [awaiting, setAwaiting] = useState(false);
-  const [wa, setWa] = useState({ href: "https://wa.me/", target: "_blank" as string | undefined });
-
-  useEffect(() => {
-    setWa(whatsAppLaunch());
-  }, []);
 
   const ingestText = useCallback((text: string, { confirm = true } = {}) => {
     const line = extractIasporLine(text);
@@ -126,17 +119,9 @@ export function AveriasPane({
     return c;
   }, [list]);
 
-  const openWa = () => {
-    setAwaiting(true);
-    toast.message("Copia el mensaje IASPOR: y vuelve aquí");
-  };
-
   const pegar = async () => {
     const ok = await scanClipboard();
-    if (ok) {
-      setAwaiting(false);
-      return;
-    }
+    if (ok) return;
     toast.message("Copia el mensaje en WhatsApp y pulsa otra vez, o pégalo abajo");
   };
 
@@ -147,7 +132,6 @@ export function AveriasPane({
     setOpenId(res.item.id);
     rememberClip(pending.raw);
     setPending(null);
-    setAwaiting(false);
     void writeFolderEstado();
     toast.success(res.existed ? "Esa avería ya estaba" : "Avería lista");
   };
@@ -202,17 +186,12 @@ export function AveriasPane({
           <span className="font-mono text-xs text-primary">
             IASPOR: Cliente | Dirección | Población | Teléfono | Avería
           </span>
-          . Abre WhatsApp, copia y vuelve — o pulsa Pegar aviso.
+          . Copia el mensaje del grupo y pulsa Pegar aviso.
         </p>
       </div>
 
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <Button asChild>
-          <a href={wa.href} target={wa.target} rel="noopener noreferrer" onClick={openWa}>
-            <MessageCircle /> WhatsApp
-          </a>
-        </Button>
-        <Button type="button" variant="secondary" onClick={() => void pegar()}>
+      <div className="grid grid-cols-3 gap-2">
+        <Button type="button" onClick={() => void pegar()}>
           Pegar aviso
         </Button>
         <Button
@@ -239,13 +218,6 @@ export function AveriasPane({
         </Button>
       </div>
 
-      {awaiting ? (
-        <p className="rounded-md border border-primary/40 bg-raised px-3 py-2 text-sm text-primary">
-          WhatsApp abierto. Copia el <span className="font-mono">IASPOR:</span> y vuelve — pulsa Pegar aviso si no
-          aparece solo.
-        </p>
-      ) : null}
-
       <textarea
         id="averia-paste"
         value={pasteBox}
@@ -256,7 +228,6 @@ export function AveriasPane({
             e.preventDefault();
             ingestText(t);
             setPasteBox("");
-            setAwaiting(false);
           }
         }}
         placeholder="Pega aquí: IASPOR: Comunidad | juan alvargonzalez 3 | Gijón | 64539727 | Portón no abre"

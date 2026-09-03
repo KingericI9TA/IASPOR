@@ -172,10 +172,12 @@ export async function collectTallerFiles(root: FileSystemDirectoryHandle) {
             }
             continue;
           }
-          if (!isTallerFile(raw)) continue;
+          if (!isTallerFile(raw) && !/codigos/i.test(raw.name)) continue;
           if (seen.has(rel)) continue;
           seen.add(rel);
-          files.push(withPath(raw, rel));
+          const next = withPath(raw, rel);
+          if (/codigos/i.test(raw.name)) files.unshift(next);
+          else files.push(next);
         } catch {
           /* archivo bloqueado */
         }
@@ -186,6 +188,63 @@ export async function collectTallerFiles(root: FileSystemDirectoryHandle) {
   }
 
   return { files, folders };
+}
+
+export async function collectMatchingFiles(
+  root: FileSystemDirectoryHandle,
+  match: (file: File) => boolean,
+  limit = 8,
+) {
+  const files: File[] = [];
+  const seen = new Set<string>();
+  const stack: { dir: FileSystemDirectoryHandle; path: string; depth: number }[] = [
+    { dir: root, path: root.name || "", depth: 0 },
+  ];
+
+  while (stack.length && files.length < limit) {
+    const cur = stack.pop()!;
+    if (cur.depth > MAX_DEPTH) continue;
+    try {
+      if (!(await ensureRead(cur.dir))) continue;
+    } catch {
+      continue;
+    }
+    try {
+      for await (const [name, entry] of listDir(cur.dir as DirHandle)) {
+        if (!name || name.startsWith(".") || SKIP_DIR.test(name) || SKIP_FILE.test(name)) continue;
+        const rel = cur.path ? `${cur.path}/${name}` : name;
+        if (entry?.kind === "directory") {
+          stack.push({ dir: entry as FileSystemDirectoryHandle, path: rel, depth: cur.depth + 1 });
+          continue;
+        }
+        if (!entry) {
+          try {
+            const sub = await cur.dir.getDirectoryHandle(name);
+            stack.push({ dir: sub, path: rel, depth: cur.depth + 1 });
+            continue;
+          } catch {
+            /* archivo */
+          }
+        }
+        try {
+          const handle = (
+            entry?.kind === "file" ? entry : await cur.dir.getFileHandle(name)
+          ) as FileSystemFileHandle;
+          const raw = await handle.getFile();
+          const next = withPath(raw, rel);
+          if (!match(next) || seen.has(rel)) continue;
+          seen.add(rel);
+          files.push(next);
+          if (files.length >= limit) break;
+        } catch {
+          /* bloqueado */
+        }
+      }
+    } catch {
+      /* ilegible */
+    }
+  }
+  return files;
 }
 
 export function isMobileChrome() {

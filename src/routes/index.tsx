@@ -51,10 +51,12 @@ import {
 import {
   CODE_SOURCES,
   ingestLocalCodes,
+  ingestCodigosFromFolder,
   loadLocalCodeRows,
-  fetchCodeTables,
+  queryCodeTables,
   searchCodeRows,
   sheetUrl,
+  isCodigosFileName,
   type CodeRow,
 } from "@/lib/codigos";
 import {
@@ -433,12 +435,25 @@ function Home() {
       }
       const BATCH = 80;
       const rest = Math.max(0, expanded.length - BATCH);
-      const list = expanded.slice(0, BATCH);
+      const list = [...expanded]
+        .sort((a, b) => Number(isCodigosFileName(b.name)) - Number(isCodigosFileName(a.name)))
+        .slice(0, BATCH);
       const addedDocs: LibraryDoc[] = [];
       for (let i = 0; i < list.length; i++) {
         const file = list[i];
         const kind = kindOfFile(file);
         if (!kind) {
+          if (isCodigosFileName(file.name)) {
+            try {
+              const text = await file.text();
+              const n = ingestLocalCodes(file.name, text);
+              if (n) codes += n;
+              else skipped += 1;
+            } catch {
+              skipped += 1;
+            }
+            continue;
+          }
           skipped += 1;
           continue;
         }
@@ -2141,48 +2156,61 @@ function CodesPane() {
   const [field, setField] = useState("");
   const [sourceId, setSourceId] = useState<"all" | "a" | "b" | "local">("all");
   const loaded = useRef(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const applyRows = (next: CodeRow[], cols: string[], label: string) => {
+    setRows(next);
+    setHeaders(cols);
+    setStatus(label);
+    setField((cur) => (cur && !cols.includes(cur) ? "" : cur));
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
-    setStatus(null);
+    setStatus("Leyendo CODIGOS y CODIGOS HASTA 99…");
     try {
-      if (isStaticHost()) {
-        const local = loadLocalCodeRows();
-        setRows(local.rows);
-        setHeaders(local.headers);
-        setStatus(local.rows.length ? `Teléfono (${local.rows.length})` : "Sin datos remotos en esta copia. Añade un Excel.");
-        return;
+      const dir = await loadTallerHandle();
+      if (dir) {
+        try {
+          await ingestCodigosFromFolder(dir);
+        } catch {
+          /* carpeta sin permiso en este momento */
+        }
       }
-      const res = await fetchCodeTables();
+      const res = await queryCodeTables();
       const local = loadLocalCodeRows();
-      const allRows = [...local.rows, ...res.tables.flatMap((t) => t.rows)];
-      const cols = [...new Set([...local.headers, ...res.tables.flatMap((t) => t.headers)])];
-      setRows(allRows);
-      setHeaders(cols);
+      const remoteOk = new Set(res.tables.filter((t) => t.rows.length).map((t) => t.sourceId));
+      const extraLocal = local.rows.filter((r) => r.sourceId === "local" || !remoteOk.has(r.sourceId));
+      const allRows = [...res.tables.flatMap((t) => t.rows), ...extraLocal];
+      const cols = [
+        ...new Set([...res.tables.flatMap((t) => t.headers), ...local.headers]),
+      ];
       setNames({
         a: res.tables.find((t) => t.sourceId === "a")?.sourceName ?? CODE_SOURCES[0].name,
         b: res.tables.find((t) => t.sourceId === "b")?.sourceName ?? CODE_SOURCES[1].name,
       });
       const errs = res.tables.filter((t) => t.error).map((t) => `${t.sourceName}: ${t.error}`);
       const counts = [
-        ...res.tables.filter((t) => !t.error).map((t) => `${t.sourceName} (${t.rows.length})`),
-        ...(local.rows.length ? [`Teléfono (${local.rows.length})`] : []),
+        ...res.tables.filter((t) => t.rows.length).map((t) => `${t.sourceName} (${t.rows.length})`),
+        ...(extraLocal.length ? [`Excel local (${extraLocal.length})`] : []),
       ];
-      setStatus(
-        [...(counts.length ? [`Listo: ${counts.join(" · ")}`] : []), ...errs].join(" ") ||
-          "Sin datos",
+      const stale = res.cached ? "copia guardada · " : "";
+      applyRows(
+        allRows,
+        cols,
+        [...(counts.length ? [`${stale}${counts.join(" · ")}`] : []), ...errs].join(" ") ||
+          "Sin datos. Añade el Excel CODIGOS o recarga.",
       );
-      setField((cur) => (cur && !cols.includes(cur) ? "" : cur));
     } catch (e) {
       const local = loadLocalCodeRows();
       if (local.rows.length) {
-        setRows(local.rows);
-        setHeaders(local.headers);
-        setStatus(`Sin Drive · ${local.rows.length} filas del teléfono`);
+        applyRows(
+          local.rows,
+          local.headers,
+          `${local.rows.length} filas del teléfono. Drive no respondió.`,
+        );
       } else {
-        setRows([]);
-        setHeaders([]);
-        setStatus(friendlyServerError(e, "Sin Drive. Añade un Excel en Archivos."));
+        applyRows([], [], friendlyServerError(e, "No se pudieron leer CODIGOS. Añade el Excel."));
       }
     } finally {
       setLoading(false);
@@ -2195,10 +2223,27 @@ function CodesPane() {
     void load();
   }, [load]);
 
-  const hits = useMemo(
-    () => (q.trim() ? searchCodeRows(rows, q, field, sourceId) : []),
-    [q, rows, field, sourceId],
-  );
+  const hits = useMemo(() => searchCodeRows(rows, q, field, sourceId), [q, rows, field, sourceId]);
+  const filtered = sourceId === "all" ? rows : rows.filter((r) => r.sourceId === sourceId);
+
+  const addExcel = async (files: FileList | null) => {
+    if (!files?.length) return;
+    setLoading(true);
+    try {
+      let n = 0;
+      for (const file of [...files]) {
+        const text = kindOfFile(file) === "csv" ? await file.text() : await extractOfficeText(file);
+        n += ingestLocalCodes(file.name, text);
+      }
+      toast.success(n ? `Códigos: ${n} filas` : "Ese archivo no tenía filas");
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "No se pudo leer el Excel");
+    } finally {
+      setLoading(false);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  };
 
   const selectClass =
     "h-11 w-full rounded-md border border-primary/25 bg-surface/80 px-3 text-sm text-fg";
@@ -2210,7 +2255,8 @@ function CodesPane() {
           <IconCodigos className="size-5" /> Códigos
         </h2>
         <p className="mt-1 text-sm leading-relaxed text-muted">
-          Busca en las hojas de Drive y en los Excel/CSV que hayas importado al teléfono.
+          Lee <span className="text-fg">CODIGOS</span> y <span className="text-fg">CODIGOS HASTA 99</span>{" "}
+          (Drive o el Excel de la carpeta). Escribe un nombre, código, calle o población.
         </p>
         <ul className="mt-2 flex flex-col gap-1 text-sm">
           {CODE_SOURCES.map((s) => (
@@ -2237,8 +2283,8 @@ function CodesPane() {
         <Input
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="Código, marca, modelo, mando…"
-          aria-label="Buscar en las bases de códigos"
+          placeholder="Ej. Gijón, TM-1, 746, Mareo…"
+          aria-label="Buscar en CODIGOS y CODIGOS HASTA 99"
         />
         <div className="grid grid-cols-2 gap-2">
           <label className="text-xs text-muted">
@@ -2266,26 +2312,52 @@ function CodesPane() {
               <option value="all">Todas</option>
               <option value="a">{names.a}</option>
               <option value="b">{names.b}</option>
-              <option value="local">Teléfono</option>
+              <option value="local">Excel local</option>
             </select>
           </label>
         </div>
       </form>
 
-      <Button onClick={() => void load()} disabled={loading} variant="secondary">
-        {loading ? <Loader2 className="animate-spin" /> : <RefreshCw />}
-        Recargar Drive
-      </Button>
+      <div className="grid grid-cols-2 gap-2">
+        <Button onClick={() => void load()} disabled={loading} variant="secondary">
+          {loading ? <Loader2 className="animate-spin" /> : <RefreshCw />}
+          Recargar
+        </Button>
+        <Button type="button" variant="secondary" disabled={loading} onClick={() => fileRef.current?.click()}>
+          <IconArchivos />
+          Añadir Excel
+        </Button>
+        <input
+          ref={fileRef}
+          type="file"
+          hidden
+          multiple
+          accept=".xlsx,.xlsm,.csv,.tsv,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv"
+          onChange={(e) => void addExcel(e.target.files)}
+        />
+      </div>
       {status ? <p className="text-sm text-muted">{status}</p> : null}
 
+      {loading && !rows.length ? (
+        <p className="flex items-center gap-2 text-sm text-muted">
+          <Loader2 className="size-4 animate-spin" /> Abriendo tablas…
+        </p>
+      ) : null}
+
       {q.trim() && !loading && hits.length === 0 && rows.length > 0 ? (
-        <p className="text-sm text-muted">Sin coincidencias.</p>
+        <p className="text-sm text-muted">Sin coincidencias en {filtered.length} filas.</p>
+      ) : null}
+
+      {!q.trim() && rows.length > 0 ? (
+        <p className="text-xs tracking-[0.16em] text-muted uppercase">
+          {filtered.length} filas · primeras {hits.length}
+        </p>
       ) : null}
 
       {hits.length > 0 ? (
         <ul className="flex flex-col gap-2">
           {hits.map((hit, idx) => (
-            <li key={`${hit.sourceId}-${idx}`} className="rounded-md hud p-3">
+            <li key={`${hit.sourceId}-${idx}-${hit.values.Nombre ?? hit.values.ID ?? idx}`} className="rounded-md hud p-3">
               <p className="font-mono text-xs text-primary">{hit.sourceName}</p>
               <dl className="mt-2 grid gap-1 text-sm">
                 {(field ? [field] : Object.keys(hit.values))

@@ -1,4 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
+import { isStaticHost } from "./static-host";
 import { normalize } from "./utils";
 
 export type CodeSource = {
@@ -14,15 +15,23 @@ export type CodeRow = {
   values: Record<string, string>;
 };
 
+export type CodeTable = {
+  sourceId: "a" | "b" | "local";
+  sourceName: string;
+  headers: string[];
+  rows: CodeRow[];
+  error?: string;
+};
+
 export const CODE_SOURCES: CodeSource[] = [
   {
     id: "a",
-    name: "Códigos (archivo 1)",
+    name: "CODIGOS",
     sheetId: "1HR_xZnUQiSfCQtJp1_3ChJLwfF48ab9C",
   },
   {
     id: "b",
-    name: "Códigos hasta 99",
+    name: "CODIGOS HASTA 99",
     sheetId: "150u0gSM43ZE9NqfMWEdCTHnjZzNDMWUt",
     gid: "63387844",
   },
@@ -35,6 +44,26 @@ export function sheetUrl(id: string) {
 export function csvUrl(id: string, gid?: string) {
   const gidQ = gid ? `&gid=${gid}` : "";
   return `https://docs.google.com/spreadsheets/d/${id}/export?format=csv${gidQ}`;
+}
+
+export function isCodigosFileName(name: string) {
+  const n = normalize(name.replace(/\.(xlsx|xlsm|xls|csv|tsv|txt)$/i, ""));
+  if (!n.includes("codigos")) return false;
+  return true;
+}
+
+export function sourceIdForFileName(name: string): "a" | "b" | "local" {
+  const n = normalize(name);
+  if (!n.includes("codigos")) return "local";
+  if (n.includes("hasta") && n.includes("99")) return "b";
+  return "a";
+}
+
+export function displayCodigosName(name: string) {
+  const id = sourceIdForFileName(name);
+  if (id === "a") return "CODIGOS";
+  if (id === "b") return "CODIGOS HASTA 99";
+  return name.replace(/\.(xlsx|xlsm|xls|csv|tsv|txt)$/i, "").slice(0, 80);
 }
 
 function parseCsv(text: string): { headers: string[]; rows: Record<string, string>[] } {
@@ -95,25 +124,55 @@ function parseCsv(text: string): { headers: string[]; rows: Record<string, strin
   }
 
   const headers = (lines[0] ?? []).map((h, idx) => h || `Columna ${idx + 1}`);
-  const rows = lines.slice(1, 4000).map((cols) => {
+  const rows = lines.slice(1, 5000).map((cols) => {
     const values: Record<string, string> = {};
     headers.forEach((h, idx) => {
       values[h] = cols[idx] ?? "";
     });
     return values;
   });
-  return { headers, rows };
+  return { headers, rows: rows.filter(rowHasData) };
+}
+
+function rowHasData(values: Record<string, string>) {
+  return Object.values(values).some((v) => v.trim().length > 0);
+}
+
+function looksLikeTable(text: string) {
+  const t = text.trim();
+  if (!t || t.length < 12) return false;
+  if (/<!doctype html/i.test(t.slice(0, 160)) || /accounts\.google/i.test(t.slice(0, 500))) return false;
+  const first = t.split("\n").find((l) => l.trim()) ?? "";
+  return /[,;\t]/.test(first) && /codigo|nombre|ot|id|emisor|numero/i.test(first);
+}
+
+function unwrapReader(text: string) {
+  const t = text.trim();
+  if (!t) return t;
+  const marker = "Markdown Content:";
+  const i = t.indexOf(marker);
+  const body = i >= 0 ? t.slice(i + marker.length).trim() : t;
+  return body.replace(/^```(?:csv|tsv|text)?\s*/i, "").replace(/\s*```$/, "").trim();
 }
 
 const LOCAL_KEY = "iaspor:codigos-local";
+const CACHE_KEY = "iaspor:codigos-cache";
+const CACHE_MS = 24 * 60 * 60 * 1000;
 
-type LocalTable = { name: string; headers: string[]; rows: Record<string, string>[] };
+type LocalTable = { name: string; sourceId: "a" | "b" | "local"; headers: string[]; rows: Record<string, string>[] };
 
 export function ingestLocalCodes(fileName: string, text: string) {
   const parsed = parseCsv(text);
-  if (parsed.rows.length === 0) return parsed.rows.length;
-  const tables: LocalTable[] = loadLocalTables().filter((t) => t.name !== fileName);
-  tables.unshift({ name: fileName.slice(0, 80), headers: parsed.headers, rows: parsed.rows });
+  if (parsed.rows.length === 0) return 0;
+  const sourceId = sourceIdForFileName(fileName);
+  const name = displayCodigosName(fileName);
+  const tables: LocalTable[] = loadLocalTables().filter((t) => t.name !== name && t.name !== fileName);
+  tables.unshift({
+    name,
+    sourceId,
+    headers: parsed.headers,
+    rows: parsed.rows,
+  });
   localStorage.setItem(LOCAL_KEY, JSON.stringify(tables.slice(0, 6)));
   return parsed.rows.length;
 }
@@ -123,7 +182,13 @@ function loadLocalTables(): LocalTable[] {
     const raw = localStorage.getItem(LOCAL_KEY);
     if (!raw) return [];
     const p = JSON.parse(raw) as LocalTable[];
-    return Array.isArray(p) ? p : [];
+    if (!Array.isArray(p)) return [];
+    return p.map((t) => ({
+      name: t.name,
+      sourceId: t.sourceId ?? sourceIdForFileName(t.name),
+      headers: t.headers ?? [],
+      rows: t.rows ?? [],
+    }));
   } catch {
     return [];
   }
@@ -135,7 +200,7 @@ export function loadLocalCodeRows(): { headers: string[]; rows: CodeRow[] } {
   const rows: CodeRow[] = [];
   for (const t of tables) {
     for (const values of t.rows) {
-      rows.push({ sourceId: "local", sourceName: t.name, values });
+      rows.push({ sourceId: t.sourceId, sourceName: t.name, values });
     }
   }
   return { headers, rows };
@@ -148,7 +213,7 @@ export function searchCodeRows(
   sourceId: "all" | "a" | "b" | "local",
 ) {
   const q = normalize(query);
-  if (!q) return [];
+  if (!q) return rows.slice(0, 20);
   const parts = q.split(" ").filter(Boolean);
   const out: { row: CodeRow; score: number }[] = [];
   for (const row of rows) {
@@ -165,83 +230,151 @@ export function searchCodeRows(
   return out.slice(0, 80).map((x) => x.row);
 }
 
-export const fetchCodeTables = createServerFn({ method: "POST" }).handler(async () => {
-  const tables: {
-    sourceId: "a" | "b";
-    sourceName: string;
-    headers: string[];
-    rows: CodeRow[];
-    error?: string;
-  }[] = [];
+async function serverGet(url: string) {
+  const res = await fetch(url, {
+    headers: { "User-Agent": "IASPOR/1.0 (codigos)" },
+    redirect: "follow",
+    signal: AbortSignal.timeout(20_000),
+  });
+  if (res.status === 401 || res.status === 403) {
+    throw new Error("El archivo es privado. En Drive: Compartir → Cualquiera con el enlace → Lector.");
+  }
+  if (!res.ok) throw new Error(`No se pudo abrir (${res.status}).`);
+  const text = await res.text();
+  if (/<!doctype html/i.test(text.slice(0, 120)) || /accounts\.google/i.test(text.slice(0, 400))) {
+    throw new Error("Google pide inicio de sesión. Comparte la hoja: Cualquiera con el enlace → Lector.");
+  }
+  return text;
+}
 
-  for (const source of CODE_SOURCES) {
+async function browserGetCsv(url: string) {
+  const jina = `https://r.jina.ai/${url}`;
+  const sources = [url, jina, `https://proxy.cors.sh/${url}`, `https://proxy.corsfix.com/?${url}`];
+  const errors: string[] = [];
+  for (const src of sources) {
     try {
-      const res = await fetch(csvUrl(source.sheetId, source.gid), {
-        headers: { "User-Agent": "ASPOR-IA/1.0" },
+      const res = await fetch(src, {
         redirect: "follow",
-        signal: AbortSignal.timeout(20_000),
+        headers: src.includes("r.jina.ai") ? { "X-Return-Format": "text" } : undefined,
+        signal: AbortSignal.timeout(src.includes("r.jina.ai") ? 22_000 : 10_000),
       });
-      if (res.status === 401 || res.status === 403) {
-        tables.push({
-          sourceId: source.id,
-          sourceName: source.name,
-          headers: [],
-          rows: [],
-          error:
-            "El archivo es privado. En Drive: Compartir → Cualquiera con el enlace → Lector.",
-        });
-        continue;
-      }
       if (!res.ok) {
-        tables.push({
-          sourceId: source.id,
-          sourceName: source.name,
-          headers: [],
-          rows: [],
-          error: `No se pudo abrir (${res.status}).`,
-        });
+        errors.push(String(res.status));
         continue;
       }
-      const text = await res.text();
-      if (/<!doctype html/i.test(text.slice(0, 120)) || /accounts\.google/i.test(text.slice(0, 400))) {
-        tables.push({
-          sourceId: source.id,
-          sourceName: source.name,
-          headers: [],
-          rows: [],
-          error:
-            "Google pide inicio de sesión. Comparte la hoja: Cualquiera con el enlace → Lector.",
-        });
-        continue;
-      }
-      const parsed = parseCsv(text);
-      const disp = res.headers.get("content-disposition") ?? "";
-      const star = disp.match(/filename\*=UTF-8''([^;]+)/i);
-      const plain = disp.match(/filename="([^"]+)"/i);
-      const file = decodeURIComponent((star?.[1] || plain?.[1] || "").replace(/\+/g, " "));
-      const sourceName = file
-        ? file.replace(/\.csv$/i, "").replace(/\.xls[xm]?$/i, "").slice(0, 80)
-        : source.name;
-      tables.push({
-        sourceId: source.id,
-        sourceName,
-        headers: parsed.headers,
-        rows: parsed.rows.map((values) => ({
-          sourceId: source.id,
-          sourceName,
-          values,
-        })),
-      });
-    } catch {
-      tables.push({
-        sourceId: source.id,
-        sourceName: source.name,
-        headers: [],
-        rows: [],
-        error: "Tiempo de espera o red al leer Drive.",
-      });
+      const text = unwrapReader(await res.text());
+      if (looksLikeTable(text)) return text;
+    } catch (e) {
+      errors.push(e instanceof Error ? e.message : "red");
     }
   }
+  throw new Error(errors.some((x) => /401|403/.test(x)) ? "El archivo es privado." : "No se pudo leer CODIGOS.");
+}
 
+async function tableFromSource(source: CodeSource, getText: (url: string) => Promise<string>): Promise<CodeTable> {
+  try {
+    const text = await getText(csvUrl(source.sheetId, source.gid));
+    const parsed = parseCsv(text);
+    return {
+      sourceId: source.id,
+      sourceName: source.name,
+      headers: parsed.headers,
+      rows: parsed.rows.map((values) => ({
+        sourceId: source.id,
+        sourceName: source.name,
+        values,
+      })),
+    };
+  } catch (e) {
+    return {
+      sourceId: source.id,
+      sourceName: source.name,
+      headers: [],
+      rows: [],
+      error: e instanceof Error ? e.message : "No se pudo leer.",
+    };
+  }
+}
+
+export const fetchCodeTables = createServerFn({ method: "POST" }).handler(async () => {
+  const tables = await Promise.all(CODE_SOURCES.map((s) => tableFromSource(s, serverGet)));
   return { ok: true as const, tables };
 });
+
+type CacheFile = { at: number; tables: CodeTable[] };
+
+function readCodeCache(): CacheFile | null {
+  try {
+    const raw = localStorage.getItem(CACHE_KEY);
+    if (!raw) return null;
+    const p = JSON.parse(raw) as CacheFile;
+    if (!p?.tables?.length || Date.now() - p.at > CACHE_MS) return null;
+    return p;
+  } catch {
+    return null;
+  }
+}
+
+function writeCodeCache(tables: CodeTable[]) {
+  try {
+    const usable = tables.filter((t) => t.rows.length);
+    if (!usable.length) return;
+    localStorage.setItem(CACHE_KEY, JSON.stringify({ at: Date.now(), tables: usable } satisfies CacheFile));
+  } catch {
+    /* quota */
+  }
+}
+
+export async function queryCodeTables(): Promise<{ ok: true; tables: CodeTable[]; cached?: boolean }> {
+  const cached = typeof window !== "undefined" ? readCodeCache() : null;
+  const run = async () => {
+    if (typeof window !== "undefined" && isStaticHost()) {
+      return {
+        ok: true as const,
+        tables: await Promise.all(CODE_SOURCES.map((s) => tableFromSource(s, browserGetCsv))),
+      };
+    }
+    try {
+      return await fetchCodeTables();
+    } catch {
+      return {
+        ok: true as const,
+        tables: await Promise.all(CODE_SOURCES.map((s) => tableFromSource(s, browserGetCsv))),
+      };
+    }
+  };
+
+  try {
+    const res = await run();
+    if (res.tables.some((t) => t.rows.length)) writeCodeCache(res.tables);
+    if (res.tables.every((t) => t.error) && cached) {
+      return { ok: true, tables: cached.tables, cached: true };
+    }
+    return res;
+  } catch {
+    if (cached) return { ok: true, tables: cached.tables, cached: true };
+    throw new Error("No se pudo leer CODIGOS ni CODIGOS HASTA 99");
+  }
+}
+
+export async function ingestCodigosFromFolder(dir: FileSystemDirectoryHandle) {
+  const { extractOfficeText, kindOfFile } = await import("./office-text");
+  const { collectMatchingFiles } = await import("./taller-folder");
+  const files = await collectMatchingFiles(dir, (file) => isCodigosFileName(file.name), 8);
+  let total = 0;
+  for (const file of files) {
+    try {
+      const kind = kindOfFile(file);
+      const text =
+        kind === "csv"
+          ? await file.text()
+          : kind
+            ? await extractOfficeText(file)
+            : await file.text();
+      total += ingestLocalCodes(file.name, text);
+    } catch {
+      /* xls binario: Drive cubre esos dos archivos */
+    }
+  }
+  return { files: files.length, rows: total };
+}

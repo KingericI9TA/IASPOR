@@ -53,6 +53,7 @@ import {
   ingestLocalCodes,
   ingestCodigosFromFolder,
   loadLocalCodeRows,
+  mergeCodeSources,
   queryCodeTables,
   peekCodeCache,
   searchCodeRows,
@@ -2193,30 +2194,17 @@ function CodesPane() {
 
   const load = useCallback(async (force = false) => {
     const paint = (
-      tables: { sourceId: string; sourceName: string; headers: string[]; rows: CodeRow[]; error?: string }[],
+      tables: { sourceId: "a" | "b" | "local"; sourceName: string; headers: string[]; rows: CodeRow[]; error?: string }[],
       extra: CodeRow[],
       extraHeaders: string[],
       cached?: boolean,
     ) => {
-      const remoteOk = new Set(tables.filter((t) => t.rows.length).map((t) => t.sourceId));
-      const extraLocal = extra.filter((r) => r.sourceId === "local" || !remoteOk.has(r.sourceId));
-      const allRows = [...tables.flatMap((t) => t.rows), ...extraLocal];
-      const cols = [...new Set([...tables.flatMap((t) => t.headers), ...extraHeaders])];
+      const merged = mergeCodeSources(tables, { headers: extraHeaders, rows: extra });
       setNames({
         a: tables.find((t) => t.sourceId === "a")?.sourceName ?? CODE_SOURCES[0].name,
         b: tables.find((t) => t.sourceId === "b")?.sourceName ?? CODE_SOURCES[1].name,
       });
-      const errs = tables.filter((t) => t.error).map((t) => `${t.sourceName}: ${t.error}`);
-      const counts = [
-        ...tables.filter((t) => t.rows.length).map((t) => `${t.sourceName} (${t.rows.length})`),
-        ...(extraLocal.length ? [`Excel local (${extraLocal.length})`] : []),
-      ];
-      applyRows(
-        allRows,
-        cols,
-        [...(counts.length ? [`${cached ? "listo · " : ""}${counts.join(" · ")}`] : []), ...errs].join(" ") ||
-          "Sin datos. Añade el Excel CODIGOS o recarga.",
-      );
+      applyRows(merged.rows, merged.headers, `${cached ? "listo · " : ""}${merged.label}`);
     };
 
     const cached = peekCodeCache();
@@ -2279,13 +2267,18 @@ function CodesPane() {
         extracted.push({ file, text });
       });
       for (const { file, text } of extracted) {
-        const rows = ingestLocalCodes(file.name, text, { local: true });
+        const rows = ingestLocalCodes(file.name, text);
         if (rows) {
           n += rows;
           markExcelSeen(file);
         }
       }
-      toast.success(n ? `Códigos: ${n} filas` : "Ese archivo no tenía filas");
+      if (!n) toast.message("Ese archivo no tenía filas");
+      else if (list.some((f) => isCodigosFileName(f.name))) {
+        toast.success(`${n} filas en el teléfono. Drive manda; no se duplican.`);
+      } else {
+        toast.success(`Teléfono: ${n} filas`);
+      }
       await load();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "No se pudo leer el Excel");
@@ -2305,8 +2298,10 @@ function CodesPane() {
           <IconCodigos className="size-5" /> Códigos
         </h2>
         <p className="mt-1 text-sm leading-relaxed text-muted">
-          Lee <span className="text-fg">CODIGOS</span> y <span className="text-fg">CODIGOS HASTA 99</span>{" "}
-          (Drive o el Excel de la carpeta). Escribe un nombre, código, calle o población.
+          Drive primero: <span className="text-fg">CODIGOS</span> y{" "}
+          <span className="text-fg">CODIGOS HASTA 99</span>. El Excel del teléfono con esos nombres es
+          respaldo (solo si Drive no abre). Un Excel con otro nombre se suma como tabla extra, sin
+          pisar Drive.
         </p>
         <ul className="mt-2 flex flex-col gap-1 text-sm">
           {CODE_SOURCES.map((s) => (
@@ -2359,10 +2354,10 @@ function CodesPane() {
               value={sourceId}
               onChange={(e) => setSourceId(e.target.value as "all" | "a" | "b" | "local")}
             >
-              <option value="all">Todas</option>
+              <option value="all">Todas (sin duplicar)</option>
               <option value="a">{names.a}</option>
               <option value="b">{names.b}</option>
-              <option value="local">Excel local</option>
+              <option value="local">Teléfono (extra)</option>
             </select>
           </label>
         </div>

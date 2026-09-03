@@ -161,11 +161,11 @@ const CACHE_MS = 24 * 60 * 60 * 1000;
 
 type LocalTable = { name: string; sourceId: "a" | "b" | "local"; headers: string[]; rows: Record<string, string>[] };
 
-export function ingestLocalCodes(fileName: string, text: string, opts?: { local?: boolean }) {
+export function ingestLocalCodes(fileName: string, text: string) {
   const parsed = parseCsv(text);
   if (parsed.rows.length === 0) return 0;
-  const sourceId = opts?.local ? "local" : sourceIdForFileName(fileName);
-  const name = opts?.local ? fileName.replace(/\.(xlsx|xlsm|xls|csv|tsv|txt)$/i, "").slice(0, 80) : displayCodigosName(fileName);
+  const sourceId = sourceIdForFileName(fileName);
+  const name = displayCodigosName(fileName);
   const tables: LocalTable[] = loadLocalTables().filter((t) => t.name !== name && t.name !== fileName);
   tables.unshift({
     name,
@@ -185,7 +185,7 @@ function loadLocalTables(): LocalTable[] {
     if (!Array.isArray(p)) return [];
     return p.map((t) => ({
       name: t.name,
-      sourceId: t.sourceId ?? sourceIdForFileName(t.name),
+      sourceId: sourceIdForFileName(t.name),
       headers: t.headers ?? [],
       rows: t.rows ?? [],
     }));
@@ -204,6 +204,51 @@ export function loadLocalCodeRows(): { headers: string[]; rows: CodeRow[] } {
     }
   }
   return { headers, rows };
+}
+
+/** Drive manda en CODIGOS / HASTA 99. El teléfono rellena solo si Drive no abrió, o suma tablas extra. */
+export function mergeCodeSources(
+  drive: CodeTable[],
+  local: { headers: string[]; rows: CodeRow[] },
+): { rows: CodeRow[]; headers: string[]; label: string } {
+  const remoteOk = new Set(drive.filter((t) => t.rows.length).map((t) => t.sourceId));
+  const driveRows = drive.flatMap((t) =>
+    t.rows.map((r) => ({ ...r, sourceName: `Drive · ${t.sourceName}` })),
+  );
+
+  let held = 0;
+  const phoneRows: CodeRow[] = [];
+  for (const r of local.rows) {
+    const official = r.sourceId === "a" || r.sourceId === "b";
+    if (official && remoteOk.has(r.sourceId)) {
+      held += 1;
+      continue;
+    }
+    const name = r.sourceName.replace(/^(Drive|Teléfono) · /, "");
+    phoneRows.push({ ...r, sourceName: `Teléfono · ${name}` });
+  }
+
+  const headers = [
+    ...new Set([
+      ...drive.filter((t) => t.rows.length).flatMap((t) => t.headers),
+      ...phoneRows.flatMap((r) => Object.keys(r.values)),
+    ]),
+  ];
+  const counts: string[] = [];
+  for (const t of drive) {
+    if (t.rows.length) counts.push(`Drive · ${t.sourceName} (${t.rows.length})`);
+  }
+  if (phoneRows.length) {
+    const by = new Map<string, number>();
+    for (const r of phoneRows) by.set(r.sourceName, (by.get(r.sourceName) ?? 0) + 1);
+    for (const [name, n] of by) counts.push(`${name} (${n})`);
+  }
+  const errs = drive.filter((t) => t.error).map((t) => `${t.sourceName}: ${t.error}`);
+  const heldNote = held ? "Respaldo en el teléfono, sin mezclar." : "";
+  const label =
+    [...(counts.length ? [counts.join(" · ")] : []), heldNote, ...errs].filter(Boolean).join(" ") ||
+    "Sin datos. Añade el Excel CODIGOS o recarga.";
+  return { rows: [...driveRows, ...phoneRows], headers, label };
 }
 
 export function searchCodeRows(

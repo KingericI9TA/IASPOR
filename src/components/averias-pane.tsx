@@ -15,13 +15,13 @@ import {
   mapsEmbedUrl,
   mapsQuery,
   mapsSearchUrl,
-  openWhatsAppApp,
   parseIasporAviso,
   patchAveria,
   readClipboardText,
   rememberClip,
   removeAveria,
   upsertAveria,
+  whatsAppLaunch,
   type Averia,
   type AveriaDraft,
   type AveriaEstado,
@@ -54,6 +54,11 @@ export function AveriasPane({
   const [showForm, setShowForm] = useState(false);
   const [pasteBox, setPasteBox] = useState("");
   const [awaiting, setAwaiting] = useState(false);
+  const [wa, setWa] = useState({ href: "https://wa.me/", target: "_blank" as string | undefined });
+
+  useEffect(() => {
+    setWa(whatsAppLaunch());
+  }, []);
 
   const ingestText = useCallback((text: string, { confirm = true } = {}) => {
     const line = extractIasporLine(text);
@@ -124,7 +129,6 @@ export function AveriasPane({
   const openWa = () => {
     setAwaiting(true);
     toast.message("Copia el mensaje IASPOR: y vuelve aquí");
-    openWhatsAppApp();
   };
 
   const pegar = async () => {
@@ -203,8 +207,10 @@ export function AveriasPane({
       </div>
 
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <Button type="button" onClick={openWa}>
-          <MessageCircle /> WhatsApp
+        <Button asChild>
+          <a href={wa.href} target={wa.target} rel="noopener noreferrer" onClick={openWa}>
+            <MessageCircle /> WhatsApp
+          </a>
         </Button>
         <Button type="button" variant="secondary" onClick={() => void pegar()}>
           Pegar aviso

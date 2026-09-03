@@ -195,16 +195,16 @@ function applyTheme(obra: boolean) {
 
 const MAIN_TABS = [
   { id: "buscar" as const, label: "Buscar", Icon: IconBuscar, lamp: "lamp-cyan" },
-  { id: "catalogo" as const, label: "Catálogo", Icon: IconCatalogo, lamp: "lamp-white" },
+  { id: "averias" as const, label: "Averías", Icon: IconAverias, lamp: "lamp-orange" },
   { id: "piezas" as const, label: "Piezas", Icon: IconPiezas, lamp: "lamp-orange" },
 ];
 
 const OFFICE_TABS = [
   { id: "archivos" as const, label: "Archivos", Icon: IconArchivos, lamp: "lamp-amber" },
   { id: "marcas" as const, label: "Marcas", Icon: IconMarcas, lamp: "lamp-green" },
+  { id: "catalogo" as const, label: "Catálogo", Icon: IconCatalogo, lamp: "lamp-white" },
   { id: "pedido" as const, label: "Pedido FAAC", Icon: IconPedido, lamp: "lamp-white" },
   { id: "codigos" as const, label: "Códigos", Icon: IconCodigos, lamp: "lamp-yellow" },
-  { id: "averias" as const, label: "Averías", Icon: IconAverias, lamp: "lamp-orange" },
   { id: "albaran" as const, label: "Albarán", Icon: IconAlbaran, lamp: "lamp-red" },
   { id: "presupuesto" as const, label: "Presupuesto", Icon: IconPresupuesto, lamp: "lamp-green" },
 ];

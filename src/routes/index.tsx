@@ -201,13 +201,13 @@ const MAIN_TABS = [
 ];
 
 const OFFICE_TABS = [
-  { id: "archivos" as const, label: "Archivos", Icon: IconArchivos, lamp: "lamp-amber" },
-  { id: "marcas" as const, label: "Marcas", Icon: IconMarcas, lamp: "lamp-green" },
-  { id: "catalogo" as const, label: "Catálogo", Icon: IconCatalogo, lamp: "lamp-white" },
-  { id: "pedido" as const, label: "Pedido FAAC", Icon: IconPedido, lamp: "lamp-white" },
-  { id: "codigos" as const, label: "Códigos", Icon: IconCodigos, lamp: "lamp-yellow" },
   { id: "albaran" as const, label: "Albarán", Icon: IconAlbaran, lamp: "lamp-red" },
+  { id: "codigos" as const, label: "Códigos", Icon: IconCodigos, lamp: "lamp-yellow" },
   { id: "presupuesto" as const, label: "Presupuesto", Icon: IconPresupuesto, lamp: "lamp-green" },
+  { id: "pedido" as const, label: "Pedido FAAC", Icon: IconPedido, lamp: "lamp-white" },
+  { id: "catalogo" as const, label: "Catálogo", Icon: IconCatalogo, lamp: "lamp-white" },
+  { id: "marcas" as const, label: "Marcas", Icon: IconMarcas, lamp: "lamp-green" },
+  { id: "archivos" as const, label: "Archivos", Icon: IconArchivos, lamp: "lamp-amber" },
 ];
 
 const OFFICE_IDS = OFFICE_TABS.map((t) => t.id);

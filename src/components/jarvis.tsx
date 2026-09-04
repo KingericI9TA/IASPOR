@@ -1,41 +1,24 @@
 import { useState } from "react";
-import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { IconJarvis } from "@/components/cockpit-icons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { askJarvisClient } from "@/lib/jarvis";
-
-type Msg = { role: "user" | "jarvis"; text: string; source?: "grok" | "campo" };
+import { jarvisWebUrl } from "@/lib/jarvis";
 
 export function JarvisConsulta({ seed = "" }: { seed?: string }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [msgs, setMsgs] = useState<Msg[]>([]);
 
   const question = q.trim() || seed.trim();
 
-  const ask = async () => {
+  const openGrok = () => {
     if (question.length < 2) {
       toast.message("Escribe qué quieres consultar");
       return;
     }
-    setBusy(true);
-    setMsgs((prev) => [...prev, { role: "user", text: question }]);
-    setQ("");
-    try {
-      const res = await askJarvisClient(question);
-      if (!res.ok) {
-        toast.error(res.error);
-        return;
-      }
-      setMsgs((prev) => [...prev, { role: "jarvis", text: res.text, source: res.source }]);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Jarvis no respondió");
-    } finally {
-      setBusy(false);
-    }
+    const href = jarvisWebUrl(question);
+    const win = window.open(href, "_blank", "noopener,noreferrer");
+    if (!win) window.location.assign(href);
   };
 
   return (
@@ -62,32 +45,11 @@ export function JarvisConsulta({ seed = "" }: { seed?: string }) {
             className="mx-auto flex w-full max-w-3xl min-h-0 flex-1 flex-col justify-start gap-3"
             onClick={(e) => e.stopPropagation()}
           >
-            {msgs.length > 0 || busy ? (
-              <div className="min-h-0 flex-1 overflow-y-auto rounded-md hud p-3 flex flex-col gap-3">
-                {msgs.map((m, i) => (
-                  <div
-                    key={`${m.role}-${i}`}
-                    className={
-                      m.role === "user"
-                        ? "self-end max-w-[92%] rounded-md bg-primary/15 px-3 py-2 text-sm"
-                        : "self-start max-w-[92%] rounded-md bg-raised px-3 py-2 text-sm whitespace-pre-wrap"
-                    }
-                  >
-                    {m.text}
-                  </div>
-                ))}
-                {busy ? (
-                  <p className="flex items-center gap-2 text-sm text-muted">
-                    <Loader2 className="size-4 animate-spin" /> Pensando…
-                  </p>
-                ) : null}
-              </div>
-            ) : null}
             <form
               className="flex gap-2"
               onSubmit={(e) => {
                 e.preventDefault();
-                void ask();
+                openGrok();
               }}
             >
               <Input
@@ -97,9 +59,22 @@ export function JarvisConsulta({ seed = "" }: { seed?: string }) {
                 aria-label="Pregunta para Jarvis"
                 autoFocus
               />
-              <Button type="submit" disabled={busy}>
-                {busy ? <Loader2 className="animate-spin" /> : null}
-                Preguntar
+              <Button
+                asChild
+              >
+                <a
+                  href={question.length >= 2 ? jarvisWebUrl(question) : "#"}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => {
+                    if (question.length < 2) {
+                      e.preventDefault();
+                      toast.message("Escribe qué quieres consultar");
+                    }
+                  }}
+                >
+                  Preguntar
+                </a>
               </Button>
             </form>
           </div>

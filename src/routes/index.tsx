@@ -2055,14 +2055,6 @@ function PedidoPane() {
         <h2 className="flex items-center gap-2 text-lg font-semibold tracking-[0.08em] text-primary">
           <IconPedido className="size-5" /> Pedido FAAC
         </h2>
-        <p className="mt-1 text-sm leading-relaxed text-muted">
-          Pedido nº {numero} · {fecha} · {totalPiezas(items)} uds. Se envía a FAAC / almacén por WhatsApp, correo o PDF.
-          La nota{" "}
-          <a href={PEDIDO_KEEP_VIEW} target="_blank" rel="noreferrer" className="text-primary underline-offset-4 hover:underline">
-            Pedir FAAC
-          </a>{" "}
-          se actualiza pegando el texto (Keep no deja escribir desde la app).
-        </p>
         {status ? <p className="mt-2 text-xs text-muted">{status}</p> : null}
       </div>
 

@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { IconJarvis } from "@/components/cockpit-icons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { askJarvisClient, jarvisWebUrl } from "@/lib/jarvis";
+import { askJarvisClient } from "@/lib/jarvis";
 
 type Msg = { role: "user" | "jarvis"; text: string; source?: "grok" | "campo" };
 
@@ -38,15 +38,6 @@ export function JarvisConsulta({ seed = "" }: { seed?: string }) {
     }
   };
 
-  const openGrok = () => {
-    const text = question || msgs.filter((m) => m.role === "user").at(-1)?.text || "";
-    if (text.length < 2) {
-      toast.message("Escribe qué quieres consultar");
-      return;
-    }
-    window.open(jarvisWebUrl(text), "_blank", "noopener,noreferrer");
-  };
-
   return (
     <>
       <button
@@ -63,52 +54,35 @@ export function JarvisConsulta({ seed = "" }: { seed?: string }) {
       </button>
 
       {open ? (
-        <div className="fixed inset-0 z-50 flex flex-col bg-bg/95 px-4 pt-4 pb-[calc(5.8rem+env(safe-area-inset-bottom))]">
-          <div className="mx-auto flex w-full max-w-3xl min-h-0 flex-1 flex-col gap-3">
-            <div className="flex items-center justify-between gap-2">
-              <p className="flex items-center gap-2 text-sm font-semibold tracking-[0.12em] text-lamp-amber uppercase">
-                <IconJarvis className="size-6" />
-                Jarvis
-              </p>
-              <div className="flex gap-2">
-                <Button type="button" variant="secondary" size="sm" onClick={openGrok}>
-                  Abrir Grok
-                </Button>
-                <Button type="button" variant="secondary" size="sm" onClick={() => setOpen(false)}>
-                  Cerrar
-                </Button>
+        <div
+          className="fixed inset-0 z-50 flex flex-col bg-bg px-4 pt-5 pb-[calc(1rem+env(safe-area-inset-bottom))]"
+          onClick={() => setOpen(false)}
+        >
+          <div
+            className="mx-auto flex w-full max-w-3xl min-h-0 flex-1 flex-col justify-start gap-3"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {msgs.length > 0 || busy ? (
+              <div className="min-h-0 flex-1 overflow-y-auto rounded-md hud p-3 flex flex-col gap-3">
+                {msgs.map((m, i) => (
+                  <div
+                    key={`${m.role}-${i}`}
+                    className={
+                      m.role === "user"
+                        ? "self-end max-w-[92%] rounded-md bg-primary/15 px-3 py-2 text-sm"
+                        : "self-start max-w-[92%] rounded-md bg-raised px-3 py-2 text-sm whitespace-pre-wrap"
+                    }
+                  >
+                    {m.text}
+                  </div>
+                ))}
+                {busy ? (
+                  <p className="flex items-center gap-2 text-sm text-muted">
+                    <Loader2 className="size-4 animate-spin" /> Pensando…
+                  </p>
+                ) : null}
               </div>
-            </div>
-            <div className="min-h-0 flex-1 overflow-y-auto rounded-md hud p-3 flex flex-col gap-3">
-              {msgs.length === 0 ? (
-                <p className="text-sm leading-relaxed text-muted">
-                  Pregunta en campo: modelo, placa y síntoma. Ej. “FAAC 746 no cierra, error 3”.
-                  Responde aquí; Grok queda por si hace falta más.
-                </p>
-              ) : null}
-              {msgs.map((m, i) => (
-                <div
-                  key={`${m.role}-${i}`}
-                  className={
-                    m.role === "user"
-                      ? "self-end max-w-[92%] rounded-md bg-primary/15 px-3 py-2 text-sm"
-                      : "self-start max-w-[92%] rounded-md bg-raised px-3 py-2 text-sm whitespace-pre-wrap"
-                  }
-                >
-                  {m.role === "jarvis" && m.source ? (
-                    <p className="mb-1 text-[0.65rem] tracking-[0.14em] text-muted uppercase">
-                      {m.source === "grok" ? "Grok" : "Campo"}
-                    </p>
-                  ) : null}
-                  {m.text}
-                </div>
-              ))}
-              {busy ? (
-                <p className="flex items-center gap-2 text-sm text-muted">
-                  <Loader2 className="size-4 animate-spin" /> Pensando…
-                </p>
-              ) : null}
-            </div>
+            ) : null}
             <form
               className="flex gap-2"
               onSubmit={(e) => {
@@ -119,7 +93,7 @@ export function JarvisConsulta({ seed = "" }: { seed?: string }) {
               <Input
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
-                placeholder={seed ? seed : "Ej. FAAC 746 no cierra, error 3…"}
+                placeholder={seed ? seed : "Pregunta…"}
                 aria-label="Pregunta para Jarvis"
                 autoFocus
               />

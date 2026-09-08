@@ -112,6 +112,40 @@ export function FaacDrawingViewer({
     mark?.classList.add("is-on");
   };
 
+  const pickFromClient = (clientX: number, clientY: number, target: Element | null) => {
+    if (target?.closest?.("[data-pieza-menu]")) return;
+    const direct = target?.closest?.("[data-pos]");
+    if (direct) {
+      pickPart(direct);
+      return;
+    }
+    const spots = scrollerRef.current?.querySelectorAll("[data-pos]");
+    if (!spots?.length) {
+      pickPart(target);
+      return;
+    }
+    let best: Element | null = null;
+    let bestD = Infinity;
+    const pad = 36;
+    spots.forEach((el) => {
+      const r = el.getBoundingClientRect();
+      if (r.width < 1 && r.height < 1) return;
+      const x1 = r.left - pad;
+      const y1 = r.top - pad;
+      const x2 = r.right + pad;
+      const y2 = r.bottom + pad;
+      if (clientX < x1 || clientX > x2 || clientY < y1 || clientY > y2) return;
+      const cx = (r.left + r.right) / 2;
+      const cy = (r.top + r.bottom) / 2;
+      const d = (clientX - cx) ** 2 + (clientY - cy) ** 2;
+      if (d < bestD) {
+        bestD = d;
+        best = el;
+      }
+    });
+    pickPart(best ?? target);
+  };
+
   const line = picked
     ? formatPedidoText([{ id: "x", code: picked.code, name: picked.name, qty: 1 }])
     : "";
@@ -152,11 +186,14 @@ export function FaacDrawingViewer({
       <div
         ref={scrollerRef}
         className="faac-drawing relative min-h-0 flex-1 overflow-auto p-2"
-        onClick={(e) => {
+        onPointerUp={(e) => {
           if (!svg) return;
+          if (e.pointerType === "mouse" && e.button !== 0) return;
+          const t = e.target as Element;
+          if (t.closest("button, a, [data-pieza-menu]")) return;
           e.preventDefault();
           e.stopPropagation();
-          pickPart(e.target as Element);
+          pickFromClient(e.clientX, e.clientY, t);
         }}
       >
         {status ? <p className="px-2 py-4 text-sm text-muted">{status}</p> : null}
@@ -173,8 +210,8 @@ export function FaacDrawingViewer({
             <div dangerouslySetInnerHTML={{ __html: svg }} />
           </div>
         ) : null}
-        {!svg && parts.length > 0 ? (
-          <ul className="flex flex-col gap-1.5">
+        {parts.length > 0 ? (
+          <ul className="mt-3 flex flex-col gap-1.5">
             {parts.map((p) => (
               <li key={`${p.id}-${p.pos}`}>
                 <button
@@ -182,7 +219,16 @@ export function FaacDrawingViewer({
                   className={`w-full rounded-md px-3 py-2 text-left ${
                     picked?.id === p.id ? "bg-[#dfe7ee]" : "bg-[#eef2f6]"
                   }`}
-                  onClick={() => setPicked(p)}
+                  onClick={() => {
+                    zoomOut();
+                    setPicked(p);
+                    scrollerRef.current
+                      ?.querySelectorAll(".faac-hotspot.is-on")
+                      .forEach((el) => el.classList.remove("is-on"));
+                    scrollerRef.current
+                      ?.querySelector(`[data-pos="${CSS.escape(p.pos)}"]`)
+                      ?.classList.add("is-on");
+                  }}
                 >
                   <p className="font-medium leading-snug">{p.name}</p>
                   <p className="mt-0.5 font-mono text-xs text-[#1d4f7a]">

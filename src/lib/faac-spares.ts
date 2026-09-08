@@ -84,6 +84,8 @@ type GetText = (url: string) => Promise<string>;
 function tokens(s: string) {
   return s
     .toLowerCase()
+    .replace(/([a-z]+)(\d+)/g, "$1 $2")
+    .replace(/(\d+)([a-z]+)/g, "$1 $2")
     .replace(/[^a-z0-9]+/g, " ")
     .trim()
     .split(/\s+/)
@@ -264,15 +266,26 @@ async function drawingIdFromGroup(groupId: number, getText: GetText) {
 }
 
 async function searchWith(query: string, getText: GetText, withDrawings: boolean): Promise<SpareSearchResult> {
-  const q = query.replace(/\s+/g, " ").trim().slice(0, 80);
-  if (q.length < 2) return { ok: false, error: "Indica modelo o código FAAC" };
+  const raw = query.replace(/\s+/g, " ").trim().slice(0, 80);
+  if (raw.length < 2) return { ok: false, error: "Indica modelo o código FAAC" };
+  const spaced = raw
+    .replace(/([a-z]+)(\d+)/gi, "$1 $2")
+    .replace(/(\d+)([a-z]+)/gi, "$1 $2")
+    .replace(/\s+/g, " ")
+    .trim();
+  const queries = spaced !== raw ? [raw, spaced] : [raw];
   try {
-    const raw = await getText(`${BASE}/searchJson?query=${encodeURIComponent(q)}`);
-    const rows = parseJsonPayload(raw) as Remote[];
-    if (!Array.isArray(rows)) {
-      return { ok: false, error: "Respuesta inesperada del catálogo FAAC." };
+    let hits: SpareHit[] = [];
+    let parsed = false;
+    for (const q of queries) {
+      const body = await getText(`${BASE}/searchJson?query=${encodeURIComponent(q)}`);
+      const rows = parseJsonPayload(body) as Remote[];
+      if (!Array.isArray(rows)) continue;
+      parsed = true;
+      hits = hitsFromRows(rows, q);
+      if (hits.length) break;
     }
-    const hits = hitsFromRows(rows, q);
+    if (!parsed) return { ok: false, error: "Respuesta inesperada del catálogo FAAC." };
     if (withDrawings) await attachDrawings(hits, getText);
     return { ok: true, hits };
   } catch (e) {
@@ -292,13 +305,19 @@ function extractDrawingSvg(html: string) {
       /\s(?:href|xlink:href|target|rel)\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi,
       "",
     );
-    const padded = inner.replace(
-      /<rect\s+x="([^"]+)"\s+y="([^"]+)"\s+width="([^"]+)"\s+height="([^"]+)"/i,
-      (_r, x: string, y: string, w: string, h: string) => {
-        const pad = 40;
-        return `<rect class="faac-hit" x="${Number(x) - pad}" y="${Number(y) - pad}" width="${Number(w) + pad * 2}" height="${Number(h) + pad * 2}"`;
-      },
-    );
+    const padded = inner.replace(/<rect\b([^>]*?)\/?\s*>/gi, (full, attrs: string) => {
+      const num = (name: string) => {
+        const m = new RegExp(`\\b${name}\\s*=\\s*["']?(-?[\\d.]+)`, "i").exec(attrs);
+        return m ? Number(m[1]) : NaN;
+      };
+      const x = num("x");
+      const y = num("y");
+      const w = num("width");
+      const h = num("height");
+      if (![x, y, w, h].every(Number.isFinite)) return full;
+      const pad = 64;
+      return `<rect class="faac-hit" x="${x - pad}" y="${y - pad}" width="${w + pad * 2}" height="${h + pad * 2}" fill="transparent" />${full}`;
+    });
     return `<g data-pos="${pos}" class="faac-hotspot"${cleaned}>${padded}</g>`;
   });
   return svg;

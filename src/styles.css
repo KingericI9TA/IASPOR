@@ -359,6 +359,7 @@
   .faac-drawing {
     overscroll-behavior: contain;
     -webkit-overflow-scrolling: touch;
+    touch-action: manipulation;
     background: #b7c0c9;
   }
 
@@ -369,11 +370,7 @@
     background: #f6f3ea;
     border: 8px solid #f3efe4;
     box-shadow: 0 8px 28px rgb(0 0 0 / 0.28);
-    pointer-events: auto;
-  }
-
-  .faac-drawing {
-    touch-action: manipulation;
+    pointer-events: none;
   }
 
   .faac-drawing svg text {

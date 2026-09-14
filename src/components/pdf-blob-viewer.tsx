@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { paintPdfPage } from "@/lib/pdf-render";
 
 type PdfDoc = Awaited<ReturnType<(typeof import("pdfjs-dist"))["getDocument"]>["promise"]>;
 
@@ -66,15 +67,8 @@ export function PdfBlobViewer({
         const pdfPage = await doc.getPage(Math.min(Math.max(1, page), doc.numPages));
         const canvas = canvasRef.current;
         if (!canvas || cancelled) return;
-        const base = pdfPage.getViewport({ scale: 1 });
-        const width = Math.min(900, canvas.parentElement?.clientWidth || 720);
-        const scale = Math.max(0.9, width / base.width);
-        const viewport = pdfPage.getViewport({ scale });
-        canvas.width = viewport.width;
-        canvas.height = viewport.height;
-        const ctx = canvas.getContext("2d");
-        if (!ctx) return;
-        await pdfPage.render({ canvasContext: ctx, viewport, canvas }).promise;
+        const cssWidth = Math.max(280, (canvas.parentElement?.clientWidth || 720) - 16);
+        await paintPdfPage(pdfPage, canvas, cssWidth, 1);
         if (!cancelled) setStatus("");
       } catch (e) {
         if (!cancelled) setStatus(e instanceof Error ? e.message : "No se pudo pintar la página");
@@ -130,7 +124,7 @@ export function PdfBlobViewer({
       </div>
       <div className="min-h-0 flex-1 overflow-auto bg-raised p-2">
         {status ? <p className="px-2 py-4 text-sm text-muted">{status}</p> : null}
-        <canvas ref={canvasRef} className="mx-auto max-w-full bg-fg" />
+        <canvas ref={canvasRef} className="mx-auto bg-fg" />
       </div>
       <div className="flex items-center justify-between gap-2 border-t border-border px-3 py-2">
         <p className="font-mono text-xs text-muted">

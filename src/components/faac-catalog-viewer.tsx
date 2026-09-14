@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { FAAC_CATALOG_PDF, FAAC_CATALOG_TITLE, type FaacCatalogHit } from "@/lib/faac-catalog";
+import { paintPdfPage } from "@/lib/pdf-render";
 
 type PdfDoc = Awaited<ReturnType<(typeof import("pdfjs-dist"))["getDocument"]>["promise"]>;
 
@@ -48,12 +49,15 @@ export function FaacCatalogViewer({
   catalogTitle?: string;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const scrollerRef = useRef<HTMLDivElement>(null);
   const [page, setPage] = useState(hit.page);
   const [total, setTotal] = useState(0);
+  const [zoom, setZoom] = useState(1);
   const [status, setStatus] = useState(`Abriendo ${catalogTitle}…`);
 
   useEffect(() => {
     setPage(hit.page);
+    setZoom(1);
   }, [hit.page]);
 
   useEffect(() => {
@@ -67,16 +71,10 @@ export function FaacCatalogViewer({
         const pg = Math.min(Math.max(1, page), pdf.numPages);
         const pdfPage = await pdf.getPage(pg);
         const canvas = canvasRef.current;
+        const box = scrollerRef.current;
         if (!canvas || cancelled) return;
-        const base = pdfPage.getViewport({ scale: 1 });
-        const width = Math.min(900, canvas.parentElement?.clientWidth || 720);
-        const scale = Math.max(0.8, width / base.width);
-        const viewport = pdfPage.getViewport({ scale });
-        canvas.width = viewport.width;
-        canvas.height = viewport.height;
-        const ctx = canvas.getContext("2d");
-        if (!ctx) return;
-        await pdfPage.render({ canvasContext: ctx, viewport, canvas }).promise;
+        const cssWidth = Math.max(280, (box?.clientWidth || 720) - 16);
+        await paintPdfPage(pdfPage, canvas, cssWidth, zoom);
         if (!cancelled) setStatus("");
       } catch (e) {
         if (!cancelled) setStatus(e instanceof Error ? e.message : "No se pudo pintar la página");
@@ -85,7 +83,7 @@ export function FaacCatalogViewer({
     return () => {
       cancelled = true;
     };
-  }, [page, pdfUrl]);
+  }, [page, pdfUrl, zoom]);
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-bg">
@@ -114,10 +112,38 @@ export function FaacCatalogViewer({
             Cerrar
           </Button>
         </div>
+        <div className="mt-2 grid grid-cols-3 gap-2">
+          <Button
+            type="button"
+            variant="secondary"
+            className="h-12 text-lg font-semibold"
+            onClick={() => setZoom((z) => Math.max(1, Math.round((z - 0.5) * 10) / 10))}
+            disabled={zoom <= 1}
+          >
+            −
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            className="h-12 font-semibold"
+            onClick={() => setZoom(1)}
+          >
+            {Math.round(zoom * 100)}%
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            className="h-12 text-lg font-semibold"
+            onClick={() => setZoom((z) => Math.min(3, Math.round((z + 0.5) * 10) / 10))}
+            disabled={zoom >= 3}
+          >
+            +
+          </Button>
+        </div>
       </div>
-      <div className="min-h-0 flex-1 overflow-auto bg-raised p-2">
+      <div ref={scrollerRef} className="min-h-0 flex-1 overflow-auto bg-raised p-2">
         {status ? <p className="px-2 py-4 text-sm text-muted">{status}</p> : null}
-        <canvas ref={canvasRef} className="mx-auto max-w-full bg-fg" />
+        <canvas ref={canvasRef} className="mx-auto bg-fg" />
       </div>
       <p className="border-t border-border px-3 py-2 text-center font-mono text-xs text-muted">
         {catalogTitle} · PDF pág. {page}

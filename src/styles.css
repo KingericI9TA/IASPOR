@@ -405,6 +405,10 @@
     stroke-width: 2.4 !important;
   }
 
+  .faac-hotspot[data-expl] rect {
+    fill: rgb(46 168 255 / 0.22) !important;
+  }
+
   .app-mark {
     filter: none;
     animation: none;

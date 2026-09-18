@@ -31,8 +31,14 @@ export type SpareSearchResult =
   | { ok: true; hits: SpareHit[] }
   | { ok: false; error: string };
 
+export type DrawingExplosion = {
+  pos: string;
+  drawingId: number;
+  code: string;
+};
+
 export type DrawingResult =
-  | { ok: true; title: string; svg: string | null; parts: DrawingPart[]; url: string }
+  | { ok: true; title: string; svg: string | null; parts: DrawingPart[]; explosions: DrawingExplosion[]; url: string }
   | { ok: false; error: string };
 
 export const FAAC_FAMILIES: { id: number; name: string }[] = [
@@ -300,7 +306,7 @@ function extractDrawingSvg(html: string) {
   svg = svg.replace(/<script\b[\s\S]*?<\/script>/gi, "");
   svg = svg.replace(/\son[a-z]+\s*=\s*("[^"]*"|'[^']*')/gi, "");
   svg = svg.replace(/<a\b([^>]*)>([\s\S]*?)<\/a>/gi, (_all, attrs: string, inner: string) => {
-    const pos = /data-custom\s*=\s*["']?(\d+)/i.exec(attrs)?.[1] ?? "";
+    const pos = /data-custom\s*=\s*["']?([^"'\s>]+)/i.exec(attrs)?.[1] ?? "";
     const cleaned = attrs.replace(
       /\s(?:href|xlink:href|target|rel)\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi,
       "",
@@ -326,6 +332,34 @@ function extractDrawingSvg(html: string) {
 function drawingTitle(html: string) {
   const m = html.match(/>\s*([^<]+?)\s*-\s*Clicca sulla posizione/i);
   return m ? m[1].replace(/\s+/g, " ").trim() : "Despiece FAAC";
+}
+
+export function explosionTitle(code: string, pos: string) {
+  const name = code.replace(/^EXP_+/i, "").replace(/^EXP\s+/i, "").trim();
+  return name || pos;
+}
+
+function explosionsFromHtml(html: string): DrawingExplosion[] {
+  const out: DrawingExplosion[] = [];
+  const re = /id:\s*'(\d+)'\s*,\s*position:\s*'([^']+)'\s*,\s*code:\s*'([^']*)'/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(html))) {
+    const drawingId = Number(m[1]);
+    const pos = m[2].trim();
+    if (!drawingId || !pos) continue;
+    if (out.some((e) => e.pos === pos && e.drawingId === drawingId)) continue;
+    out.push({ drawingId, pos, code: m[3].trim() });
+  }
+  return out;
+}
+
+function stampExplosions(svg: string | null, explosions: DrawingExplosion[]) {
+  if (!svg || explosions.length === 0) return svg;
+  let out = svg;
+  for (const e of explosions) {
+    out = out.replaceAll(`data-pos="${e.pos}"`, `data-pos="${e.pos}" data-expl="${e.drawingId}"`);
+  }
+  return out;
 }
 
 function partsFromJson(body: {
@@ -358,7 +392,8 @@ async function drawingWith(drawingId: number, getText: GetText): Promise<Drawing
       getText(url).catch(() => ""),
       getText(`${BASE}/parts/${id}`),
     ]);
-    const svg = pageText ? extractDrawingSvg(pageText) : null;
+    const explosions = explosionsFromHtml(pageText);
+    const svg = stampExplosions(pageText ? extractDrawingSvg(pageText) : null, explosions);
     let parts: DrawingPart[] = [];
     try {
       parts = partsFromJson(parseJsonPayload(partsText));
@@ -373,6 +408,7 @@ async function drawingWith(drawingId: number, getText: GetText): Promise<Drawing
       title: pageText ? drawingTitle(pageText) : "Despiece FAAC",
       svg,
       parts,
+      explosions,
       url,
     };
   } catch (e) {
@@ -524,7 +560,12 @@ async function loadBundledDrawing(drawingId: number): Promise<DrawingResult | nu
     ]);
     if (!svgRes.ok) return null;
     const raw = await gunzipText(await svgRes.arrayBuffer());
-    const svg = extractDrawingSvg(raw);
+    let explosions = explosionsFromHtml(raw);
+    if (!explosions.length) {
+      const page = await browserGet(drawingPageUrl(drawingId)).catch(() => "");
+      explosions = page ? explosionsFromHtml(page) : [];
+    }
+    const svg = stampExplosions(extractDrawingSvg(raw), explosions);
     if (!svg) return null;
     let parts: DrawingPart[] = [];
     if (partsText) {
@@ -539,6 +580,7 @@ async function loadBundledDrawing(drawingId: number): Promise<DrawingResult | nu
       title: meta.title || drawingTitle(raw),
       svg,
       parts,
+      explosions,
       url: drawingPageUrl(drawingId),
     };
   } catch {

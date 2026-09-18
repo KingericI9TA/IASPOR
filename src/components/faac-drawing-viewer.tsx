@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { drawingPageUrl, loadFaacDrawing, type DrawingPart } from "@/lib/faac-spares";
+import { drawingPageUrl, explosionTitle, loadFaacDrawing, type DrawingExplosion, type DrawingPart } from "@/lib/faac-spares";
 import { formatPedidoText } from "@/lib/faac-pedido";
 import { copyToClipboard } from "@/lib/utils";
 
@@ -35,14 +35,25 @@ export function FaacDrawingViewer({
   const [title, setTitle] = useState(fallbackTitle ?? "Despiece FAAC");
   const [svg, setSvg] = useState<string | null>(null);
   const [parts, setParts] = useState<DrawingPart[]>([]);
+  const [explosions, setExplosions] = useState<DrawingExplosion[]>([]);
   const [picked, setPicked] = useState<DrawingPart | null>(null);
   const [url, setUrl] = useState<string | null>(drawingPageUrl(drawingId));
+  const [stack, setStack] = useState<{ id: number; title: string }[]>([
+    { id: drawingId, title: fallbackTitle ?? "Despiece FAAC" },
+  ]);
+  const activeId = stack[stack.length - 1]?.id ?? drawingId;
 
   const byPos = useMemo(() => {
     const map = new Map<string, DrawingPart>();
     for (const p of parts) map.set(p.pos, p);
     return map;
   }, [parts]);
+
+  useEffect(() => {
+    setStack([{ id: drawingId, title: fallbackTitle ?? "Despiece FAAC" }]);
+    zoomRef.current = 1;
+    setZoomLabel("100%");
+  }, [drawingId, fallbackTitle]);
 
   useEffect(() => {
     let cancelled = false;
@@ -53,9 +64,10 @@ export function FaacDrawingViewer({
       setStatus("Abriendo esquema…");
       setPicked(null);
       setSvg(null);
-      setUrl(drawingPageUrl(drawingId));
+      setExplosions([]);
+      setUrl(drawingPageUrl(activeId));
       try {
-        const res = await loadFaacDrawing(drawingId);
+        const res = await loadFaacDrawing(activeId);
         if (cancelled) return;
         if (!res.ok) {
           setStatus(res.error);
@@ -63,9 +75,10 @@ export function FaacDrawingViewer({
         }
         setTitle(res.title || fallbackTitle || "Despiece FAAC");
         setParts(res.parts);
+        setExplosions(res.explosions);
         setUrl(res.url);
         setSvg(res.svg);
-        setStatus(res.svg || res.parts.length ? "" : "Sin piezas en este esquema.");
+        setStatus(res.svg || res.parts.length || res.explosions.length ? "" : "Sin piezas en este esquema.");
       } catch {
         if (!cancelled) setStatus("No se pudo cargar el despiece.");
       }
@@ -74,7 +87,7 @@ export function FaacDrawingViewer({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [drawingId, fallbackTitle]);
+  }, [activeId, fallbackTitle]);
 
   const applyZoom = (next: number) => {
     const z = Math.min(4, Math.max(1, Math.round(next * 10) / 10));
@@ -108,6 +121,21 @@ export function FaacDrawingViewer({
     if (box) box.scrollTo({ left: 0, top: 0, behavior: "smooth" });
   };
 
+  const openExplosion = (id: number, label: string) => {
+    if (id === activeId) return;
+    setPicked(null);
+    zoomRef.current = 1;
+    setZoomLabel("100%");
+    setStack((s) => [...s, { id, title: label }]);
+  };
+
+  const goBack = () => {
+    setPicked(null);
+    zoomRef.current = 1;
+    setZoomLabel("100%");
+    setStack((s) => (s.length > 1 ? s.slice(0, -1) : s));
+  };
+
   const pickPart = (target: Element | null) => {
     if (target?.closest?.("[data-pieza-menu]")) return;
     const node = target?.closest?.("[data-pos]");
@@ -116,6 +144,14 @@ export function FaacDrawingViewer({
     const pos = fromHotspot || (byPos.has(fromLabel) ? fromLabel : "");
     if (!pos) {
       setPicked(null);
+      return;
+    }
+    const explAttr = node?.getAttribute("data-expl");
+    const expl =
+      explosions.find((e) => e.pos === pos) ||
+      explosions.find((e) => String(e.drawingId) === explAttr);
+    if (expl) {
+      openExplosion(expl.drawingId, explosionTitle(expl.code, expl.pos));
       return;
     }
     const part = byPos.get(pos);
@@ -172,7 +208,11 @@ export function FaacDrawingViewer({
       <div className="border-b border-[#8a9aaa] bg-[#f3efe4] px-3 py-3">
         <p className="truncate text-sm font-medium">{title}</p>
         <p className="text-xs text-[#3a4a5c]">
-          {svg ? "+ / − para ampliar. Al tocar una pieza se aleja." : "Toca una pieza de la lista para copiar o añadir al pedido."}
+          {svg
+            ? explosions.length
+              ? "Toca EXPL. o la lista azul para abrir el otro despiece."
+              : "+ / − para ampliar. Al tocar una pieza se aleja."
+            : "Toca una pieza de la lista para copiar o añadir al pedido."}
         </p>
         {svg ? (
           <div className="mt-2 grid grid-cols-3 gap-2">
@@ -224,6 +264,22 @@ export function FaacDrawingViewer({
           <div ref={frameRef}>
             <div dangerouslySetInnerHTML={{ __html: svg }} />
           </div>
+        ) : null}
+        {explosions.length > 0 ? (
+          <ul className="mt-3 flex flex-col gap-1.5">
+            {explosions.map((e) => (
+              <li key={`${e.drawingId}-${e.pos}`}>
+                <button
+                  type="button"
+                  className="w-full rounded-md bg-[#d7ebf7] px-3 py-3 text-left"
+                  onClick={() => openExplosion(e.drawingId, explosionTitle(e.code, e.pos))}
+                >
+                  <p className="font-medium leading-snug">Abrir {explosionTitle(e.code, e.pos)}</p>
+                  <p className="mt-0.5 font-mono text-xs text-[#1d4f7a]">{e.pos}</p>
+                </button>
+              </li>
+            ))}
+          </ul>
         ) : null}
         {parts.length > 0 ? (
           <ul className="mt-3 flex flex-col gap-1.5">
@@ -288,15 +344,10 @@ export function FaacDrawingViewer({
       ) : null}
       <div className="border-t border-[#c4b9a4] bg-[#f3efe4] px-3 py-3">
         <div className="flex items-center justify-between gap-2">
-          {url ? (
-            <a
-              href={url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-xs text-primary underline-offset-4 hover:underline"
-            >
-              Abrir en FAAC
-            </a>
+          {stack.length > 1 ? (
+            <Button variant="secondary" className="h-12 min-w-28 font-semibold" onClick={goBack}>
+              Volver
+            </Button>
           ) : (
             <span />
           )}

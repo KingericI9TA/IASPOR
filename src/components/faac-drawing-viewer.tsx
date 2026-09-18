@@ -97,8 +97,14 @@ export function FaacDrawingViewer({
     const el = frameRef.current;
     const svgEl = el?.querySelector("svg");
     if (!box || !el || !(svgEl instanceof SVGElement)) return;
-    const fit = Math.max(220, box.clientWidth - 16);
-    const w = Math.round(fit * z);
+    const vb = svgEl.viewBox.baseVal;
+    const vw = (vb && vb.width) || Number.parseFloat(svgEl.getAttribute("width") || "") || 800;
+    const vh = (vb && vb.height) || Number.parseFloat(svgEl.getAttribute("height") || "") || 500;
+    const availW = Math.max(240, box.clientWidth - 8);
+    const availH = Math.max(280, box.clientHeight - 8);
+    const widthForHeight = vh > 0 ? availH * (vw / vh) : availW;
+    const base = Math.max(availW, widthForHeight);
+    const w = Math.round(base * z);
     svgEl.removeAttribute("width");
     svgEl.removeAttribute("height");
     svgEl.style.setProperty("width", `${w}px`, "important");
@@ -110,8 +116,15 @@ export function FaacDrawingViewer({
 
   useEffect(() => {
     if (!svg) return;
-    const id = window.requestAnimationFrame(() => applyZoom(zoomRef.current));
-    return () => window.cancelAnimationFrame(id);
+    let id2 = 0;
+    const id1 = window.requestAnimationFrame(() => {
+      applyZoom(zoomRef.current);
+      id2 = window.requestAnimationFrame(() => applyZoom(zoomRef.current));
+    });
+    return () => {
+      window.cancelAnimationFrame(id1);
+      window.cancelAnimationFrame(id2);
+    };
   }, [svg]);
 
   useEffect(() => {
@@ -242,42 +255,33 @@ export function FaacDrawingViewer({
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-[#b7c0c9] text-[#101820]">
-      <div className="border-b border-[#8a9aaa] bg-[#f3efe4] px-3 py-3">
-        <p className="truncate text-sm font-medium">{title}</p>
-        <p className="text-xs text-[#3a4a5c]">
-          {svg
-            ? explosions.length
-              ? "Toca EXPL. o la lista azul para abrir el otro despiece."
-              : "+ / − para ampliar. Al tocar una pieza se aleja."
-            : "Toca una pieza de la lista para copiar o añadir al pedido."}
-        </p>
+      <div className="flex items-center gap-1.5 border-b border-[#8a9aaa] bg-[#f3efe4] px-2 py-1.5">
+        <p className="min-w-0 flex-1 truncate text-sm font-medium">{title}</p>
+        {stack.length > 1 ? (
+          <Button type="button" variant="secondary" className="h-11 shrink-0 px-3 font-semibold" onClick={goBack}>
+            Volver
+          </Button>
+        ) : null}
         {svg ? (
-          <div className="mt-2 grid grid-cols-3 gap-2">
-            <Button
-              type="button"
-              variant="secondary"
-              className="h-12 text-lg font-semibold"
-              onClick={() => applyZoom(zoomRef.current - 0.5)}
-            >
+          <div className="grid w-[9.6rem] shrink-0 grid-cols-3 gap-1">
+            <Button type="button" variant="secondary" className="h-11 text-lg font-semibold" onClick={() => applyZoom(zoomRef.current - 0.5)}>
               −
             </Button>
-            <Button type="button" variant="secondary" className="h-12 font-semibold" onClick={() => applyZoom(1)}>
+            <Button type="button" variant="secondary" className="h-11 px-0 text-xs font-semibold" onClick={() => applyZoom(1)}>
               {zoomLabel}
             </Button>
-            <Button
-              type="button"
-              variant="secondary"
-              className="h-12 text-lg font-semibold"
-              onClick={() => applyZoom(zoomRef.current + 0.5)}
-            >
+            <Button type="button" variant="secondary" className="h-11 text-lg font-semibold" onClick={() => applyZoom(zoomRef.current + 0.5)}>
               +
             </Button>
           </div>
         ) : null}
+        <Button type="button" variant="secondary" className="h-11 shrink-0 px-3 font-semibold" onClick={onClose}>
+          Cerrar
+        </Button>
       </div>
       <div
         ref={scrollerRef}
-        className="faac-drawing relative min-h-0 flex-1 overflow-auto p-2"
+        className="faac-drawing relative min-h-0 flex-1 overflow-auto p-1"
         onPointerUp={(e) => {
           if (!svg) return;
           if (e.pointerType === "mouse" && e.button !== 0) return;
@@ -293,7 +297,7 @@ export function FaacDrawingViewer({
           <iframe
             title={title}
             src={url ?? undefined}
-            className="mb-2 h-[min(42dvh,280px)] w-full rounded-md border border-[#8a9aaa] bg-white"
+            className="h-full min-h-[58dvh] w-full border border-[#8a9aaa] bg-white"
             referrerPolicy="no-referrer-when-downgrade"
           />
         ) : null}
@@ -302,62 +306,66 @@ export function FaacDrawingViewer({
             <div dangerouslySetInnerHTML={{ __html: svg }} />
           </div>
         ) : null}
-        {explosions.length > 0 ? (
-          <ul className="mt-3 flex flex-col gap-1.5">
-            {explosions.map((e) => (
-              <li key={`${e.drawingId}-${e.pos}`}>
-                <button
-                  type="button"
-                  className="w-full rounded-md bg-[#d7ebf7] px-3 py-3 text-left"
-                  onClick={() => openExplosion(e.drawingId, explosionTitle(e.code, e.pos), e.pos)}
-                >
-                  <p className="font-medium leading-snug">Abrir {explosionTitle(e.code, e.pos)}</p>
-                  <p className="mt-0.5 font-mono text-xs text-[#1d4f7a]">{e.pos}</p>
-                </button>
-              </li>
-            ))}
-          </ul>
-        ) : null}
-        {parts.length > 0 ? (
-          <ul className="mt-3 flex flex-col gap-1.5">
-            {parts.map((p) => (
-              <li key={`${p.id}-${p.pos}`}>
-                <button
-                  type="button"
-                  className={`w-full rounded-md px-3 py-2 text-left ${
-                    picked?.id === p.id ? "bg-[#dfe7ee]" : "bg-[#eef2f6]"
-                  }`}
-                  onClick={() => {
-                    zoomOut();
-                    setPicked(p);
-                    scrollerRef.current
-                      ?.querySelectorAll(".faac-hotspot.is-on")
-                      .forEach((el) => el.classList.remove("is-on"));
-                    scrollerRef.current
-                      ?.querySelector(`[data-pos="${CSS.escape(p.pos)}"]`)
-                      ?.classList.add("is-on");
-                  }}
-                >
-                  <p className="font-medium leading-snug">{p.name}</p>
-                  <p className="mt-0.5 font-mono text-xs text-[#1d4f7a]">
-                    pos. {p.pos}
-                    {p.code ? ` · (${p.code})` : ""}
-                  </p>
-                </button>
-              </li>
-            ))}
-          </ul>
-        ) : null}
       </div>
+      {explosions.length > 0 || parts.length > 0 ? (
+        <div className="max-h-[24dvh] overflow-auto border-t border-[#8a9aaa] bg-[#cfd6dd] px-2 py-1.5">
+          {explosions.length > 0 ? (
+            <ul className="flex flex-col gap-1.5">
+              {explosions.map((e) => (
+                <li key={`${e.drawingId}-${e.pos}`}>
+                  <button
+                    type="button"
+                    className="w-full rounded-md bg-[#d7ebf7] px-3 py-2.5 text-left"
+                    onClick={() => openExplosion(e.drawingId, explosionTitle(e.code, e.pos), e.pos)}
+                  >
+                    <p className="font-medium leading-snug">Abrir {explosionTitle(e.code, e.pos)}</p>
+                    <p className="mt-0.5 font-mono text-xs text-[#1d4f7a]">{e.pos}</p>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          {parts.length > 0 ? (
+            <ul className={`${explosions.length ? "mt-1.5" : ""} flex flex-col gap-1`}>
+              {parts.map((p) => (
+                <li key={`${p.id}-${p.pos}`}>
+                  <button
+                    type="button"
+                    className={`w-full rounded-md px-3 py-2 text-left ${
+                      picked?.id === p.id ? "bg-[#dfe7ee]" : "bg-[#eef2f6]"
+                    }`}
+                    onClick={() => {
+                      zoomOut();
+                      setPicked(p);
+                      scrollerRef.current
+                        ?.querySelectorAll(".faac-hotspot.is-on")
+                        .forEach((el) => el.classList.remove("is-on"));
+                      scrollerRef.current
+                        ?.querySelector(`[data-pos="${CSS.escape(p.pos)}"]`)
+                        ?.classList.add("is-on");
+                    }}
+                  >
+                    <p className="font-medium leading-snug">{p.name}</p>
+                    <p className="mt-0.5 font-mono text-xs text-[#1d4f7a]">
+                      pos. {p.pos}
+                      {p.code ? ` · (${p.code})` : ""}
+                    </p>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      ) : null}
       {picked ? (
-        <div data-pieza-menu className="pedido-actions border-t border-[#c4b9a4] bg-[#f3efe4] px-3 py-3">
+        <div data-pieza-menu className="pedido-actions border-t border-[#c4b9a4] bg-[#f3efe4] px-3 py-2">
           <p className="font-medium leading-snug">{picked.name}</p>
-          <p className="mt-1 font-mono text-xs text-primary">
+          <p className="mt-0.5 font-mono text-xs text-primary">
             pos. {picked.pos} · ({picked.code})
           </p>
-          <div className="mt-3 grid grid-cols-2 gap-2">
+          <div className="mt-2 grid grid-cols-2 gap-2">
             <Button
-              className="h-12 text-sm font-semibold"
+              className="h-11 text-sm font-semibold"
               variant="secondary"
               onClick={async () => {
                 const ok = await copyToClipboard(line);
@@ -368,7 +376,7 @@ export function FaacDrawingViewer({
               Copiar
             </Button>
             <Button
-              className="h-12 text-sm font-semibold"
+              className="h-11 text-sm font-semibold"
               onClick={() => {
                 onAdd({ code: picked.code, name: picked.name });
                 toast.success("Añadido al pedido FAAC");
@@ -379,20 +387,6 @@ export function FaacDrawingViewer({
           </div>
         </div>
       ) : null}
-      <div className="border-t border-[#c4b9a4] bg-[#f3efe4] px-3 py-3">
-        <div className="flex items-center justify-between gap-2">
-          {stack.length > 1 ? (
-            <Button variant="secondary" className="h-12 min-w-28 font-semibold" onClick={goBack}>
-              Volver
-            </Button>
-          ) : (
-            <span />
-          )}
-          <Button variant="secondary" className="h-12 min-w-28 font-semibold" onClick={onClose}>
-            Cerrar
-          </Button>
-        </div>
-      </div>
     </div>
   );
 }

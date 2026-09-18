@@ -77,20 +77,29 @@ export function FaacDrawingViewer({
   }, [drawingId, fallbackTitle]);
 
   const applyZoom = (next: number) => {
-    const z = Math.min(4, Math.max(1, Math.round(next * 20) / 20));
+    const z = Math.min(4, Math.max(1, Math.round(next * 10) / 10));
     zoomRef.current = z;
     setZoomLabel(`${Math.round(z * 100)}%`);
+    const box = scrollerRef.current;
     const el = frameRef.current;
-    if (!el) return;
-    el.style.zoom = "";
-    el.style.transform = "";
-    const svg = el.querySelector("svg");
-    if (svg instanceof SVGElement) {
-      svg.style.width = `${z * 100}%`;
-      svg.style.height = "auto";
-      svg.style.maxWidth = "none";
-    }
+    const svgEl = el?.querySelector("svg");
+    if (!box || !el || !(svgEl instanceof SVGElement)) return;
+    const fit = Math.max(220, box.clientWidth - 16);
+    const w = Math.round(fit * z);
+    svgEl.removeAttribute("width");
+    svgEl.removeAttribute("height");
+    svgEl.style.setProperty("width", `${w}px`, "important");
+    svgEl.style.setProperty("height", "auto", "important");
+    svgEl.style.setProperty("max-width", "none", "important");
+    el.style.width = `${w}px`;
+    el.style.maxWidth = "none";
   };
+
+  useEffect(() => {
+    if (!svg) return;
+    const id = window.requestAnimationFrame(() => applyZoom(zoomRef.current));
+    return () => window.cancelAnimationFrame(id);
+  }, [svg]);
 
   const zoomOut = () => {
     applyZoom(1);
@@ -171,7 +180,7 @@ export function FaacDrawingViewer({
               type="button"
               variant="secondary"
               className="h-12 text-lg font-semibold"
-              onClick={() => applyZoom(zoomRef.current - 0.25)}
+              onClick={() => applyZoom(zoomRef.current - 0.5)}
             >
               −
             </Button>
@@ -182,7 +191,7 @@ export function FaacDrawingViewer({
               type="button"
               variant="secondary"
               className="h-12 text-lg font-semibold"
-              onClick={() => applyZoom(zoomRef.current + 0.25)}
+              onClick={() => applyZoom(zoomRef.current + 0.5)}
             >
               +
             </Button>

@@ -174,26 +174,48 @@ async function serverGet(url: string) {
 }
 
 async function fetchViaCors(url: string, ms: number) {
-  const sources = [url, `https://proxy.cors.sh/${url}`, `https://proxy.corsfix.com/?${url}`];
-  try {
-    return await Promise.any(
+  const sources = [
+    url,
+    `https://proxy.cors.sh/${url}`,
+    `https://proxy.corsfix.com/?${url}`,
+    `https://corsproxy.io/?${encodeURIComponent(url)}`,
+    `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
+  ];
+  const texts = (
+    await Promise.allSettled(
       sources.map(async (src) => {
         const res = await fetch(src, { redirect: "follow", signal: AbortSignal.timeout(ms) });
         if (!res.ok) throw new Error(String(res.status));
         const text = await res.text();
-        if (!text) throw new Error("empty");
+        if (!text || text.length < 200) throw new Error("empty");
         return text;
       }),
-    );
-  } catch {
-    return null;
-  }
+    )
+  )
+    .filter((r): r is PromiseFulfilledResult<string> => r.status === "fulfilled")
+    .map((r) => r.value);
+  const withExp = texts.find((t) => /var\s+exps/i.test(t) && /<svg\b/i.test(t));
+  if (withExp) return withExp;
+  return texts.find((t) => /<svg\b/i.test(t)) ?? texts[0] ?? null;
 }
 
 async function browserGet(url: string) {
-  if (/\/drawingPage\//.test(url)) {
+  if (/\/drawingPage\//.test(url) || /\/drawing\/\d+/.test(url)) {
     const text = await fetchViaCors(url, 25_000);
-    if (text && /<svg\b/i.test(text)) return text;
+    if (text && (/<svg\b/i.test(text) || /var\s+exps/i.test(text))) return text;
+    try {
+      const res = await fetch(`${JINA}${url}`, {
+        headers: { "X-Locale": "it-IT", "Accept-Language": "it" },
+        signal: AbortSignal.timeout(18_000),
+      });
+      if (res.ok) {
+        const body = unwrapReader(await res.text());
+        if (body && body.length > 200) return body;
+      }
+    } catch {
+      /* jina */
+    }
+    if (text) return text;
     throw new Error("No se pudo cargar el esquema.");
   }
   if (!isStaticHost()) {
@@ -340,10 +362,15 @@ export function explosionTitle(code: string, pos: string) {
 }
 
 function explosionsFromHtml(html: string): DrawingExplosion[] {
+  const decoded = html
+    .replace(/"/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/'/g, "'");
   const out: DrawingExplosion[] = [];
-  const re = /id:\s*'(\d+)'\s*,\s*position:\s*'([^']+)'\s*,\s*code:\s*'([^']*)'/g;
+  const re =
+    /id:\s*['"](\d+)['"]\s*,\s*position:\s*['"]([^'"]+)['"]\s*,\s*code:\s*['"]([^'"]*)['"]/g;
   let m: RegExpExecArray | null;
-  while ((m = re.exec(html))) {
+  while ((m = re.exec(decoded))) {
     const drawingId = Number(m[1]);
     const pos = m[2].trim();
     if (!drawingId || !pos) continue;
@@ -353,13 +380,43 @@ function explosionsFromHtml(html: string): DrawingExplosion[] {
   return out;
 }
 
+function explosionsFromSvg(svg: string | null): DrawingExplosion[] {
+  if (!svg) return [];
+  const found = [...svg.matchAll(/\bdata-(?:pos|custom)="(EXPL[^"]*)"/gi)].map((m) => m[1]);
+  return [...new Set(found)].map((pos) => ({ pos, drawingId: 0, code: pos }));
+}
+
+function mergeExplosions(fromHtml: DrawingExplosion[], fromSvg: DrawingExplosion[]) {
+  const map = new Map<string, DrawingExplosion>();
+  for (const e of fromSvg) map.set(e.pos, e);
+  for (const e of fromHtml) map.set(e.pos, e);
+  return [...map.values()];
+}
+
 function stampExplosions(svg: string | null, explosions: DrawingExplosion[]) {
   if (!svg || explosions.length === 0) return svg;
   let out = svg;
   for (const e of explosions) {
+    if (!e.drawingId) continue;
     out = out.replaceAll(`data-pos="${e.pos}"`, `data-pos="${e.pos}" data-expl="${e.drawingId}"`);
   }
   return out;
+}
+
+async function drawingPageSources(drawingId: number, getText: GetText) {
+  const page = drawingPageUrl(drawingId);
+  const fragment = `${BASE}/drawing/${drawingId}`;
+  const texts = await Promise.all([getText(page).catch(() => ""), getText(fragment).catch(() => "")]);
+  const withExp = texts.find((t) => t && /var\s+exps/i.test(t));
+  if (withExp) return withExp;
+  return texts.find((t) => t && t.length > 0) ?? "";
+}
+
+export async function resolveFaacExplosion(parentId: number, pos: string): Promise<DrawingExplosion | null> {
+  const html = await drawingPageSources(parentId, browserGet);
+  const list = explosionsFromHtml(html);
+  const want = pos.trim().toUpperCase();
+  return list.find((e) => e.pos.trim().toUpperCase() === want) ?? null;
 }
 
 function partsFromJson(body: {
@@ -388,12 +445,11 @@ async function drawingWith(drawingId: number, getText: GetText): Promise<Drawing
   const id = drawingId;
   const url = drawingPageUrl(id);
   try {
-    const [pageText, partsText] = await Promise.all([
-      getText(url).catch(() => ""),
-      getText(`${BASE}/parts/${id}`),
-    ]);
-    const explosions = explosionsFromHtml(pageText);
-    const svg = stampExplosions(pageText ? extractDrawingSvg(pageText) : null, explosions);
+    const pageText = await drawingPageSources(id, getText);
+    const partsText = await getText(`${BASE}/parts/${id}`).catch(() => "");
+    const svgRaw = pageText ? extractDrawingSvg(pageText) : null;
+    const explosions = mergeExplosions(explosionsFromHtml(pageText), explosionsFromSvg(svgRaw));
+    const svg = stampExplosions(svgRaw, explosions);
     let parts: DrawingPart[] = [];
     try {
       parts = partsFromJson(parseJsonPayload(partsText));
@@ -560,12 +616,14 @@ async function loadBundledDrawing(drawingId: number): Promise<DrawingResult | nu
     ]);
     if (!svgRes.ok) return null;
     const raw = await gunzipText(await svgRes.arrayBuffer());
-    let explosions = explosionsFromHtml(raw);
-    if (!explosions.length) {
-      const page = await browserGet(drawingPageUrl(drawingId)).catch(() => "");
-      explosions = page ? explosionsFromHtml(page) : [];
+    const svgRaw = extractDrawingSvg(raw);
+    let fromHtml = explosionsFromHtml(raw);
+    if (!fromHtml.length) {
+      const page = await drawingPageSources(drawingId, browserGet).catch(() => "");
+      fromHtml = page ? explosionsFromHtml(page) : [];
     }
-    const svg = stampExplosions(extractDrawingSvg(raw), explosions);
+    const explosions = mergeExplosions(fromHtml, explosionsFromSvg(svgRaw));
+    const svg = stampExplosions(svgRaw, explosions);
     if (!svg) return null;
     let parts: DrawingPart[] = [];
     if (partsText) {

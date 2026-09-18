@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { drawingPageUrl, explosionTitle, loadFaacDrawing, type DrawingExplosion, type DrawingPart } from "@/lib/faac-spares";
+import { drawingPageUrl, explosionTitle, loadFaacDrawing, resolveFaacExplosion, type DrawingExplosion, type DrawingPart } from "@/lib/faac-spares";
 import { formatPedidoText } from "@/lib/faac-pedido";
 import { copyToClipboard } from "@/lib/utils";
 
@@ -53,7 +53,7 @@ export function FaacDrawingViewer({
     setStack([{ id: drawingId, title: fallbackTitle ?? "Despiece FAAC" }]);
     zoomRef.current = 1;
     setZoomLabel("100%");
-  }, [drawingId, fallbackTitle]);
+  }, [drawingId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -114,6 +114,19 @@ export function FaacDrawingViewer({
     return () => window.cancelAnimationFrame(id);
   }, [svg]);
 
+  useEffect(() => {
+    if (!svg) return;
+    const found = [...svg.matchAll(/\bdata-pos="(EXPL[^"]*)"/gi)].map((m) => m[1]);
+    if (!found.length) return;
+    setExplosions((prev) => {
+      const have = new Set(prev.map((e) => e.pos));
+      const extra = [...new Set(found)]
+        .filter((pos) => !have.has(pos))
+        .map((pos) => ({ pos, drawingId: 0, code: pos }));
+      return extra.length ? [...prev, ...extra] : prev;
+    });
+  }, [svg]);
+
   const zoomOut = () => {
     applyZoom(1);
     resetPageZoom();
@@ -121,12 +134,36 @@ export function FaacDrawingViewer({
     if (box) box.scrollTo({ left: 0, top: 0, behavior: "smooth" });
   };
 
-  const openExplosion = (id: number, label: string) => {
-    if (id === activeId) return;
-    setPicked(null);
-    zoomRef.current = 1;
-    setZoomLabel("100%");
-    setStack((s) => [...s, { id, title: label }]);
+  const openExplosion = (id: number, label: string, pos?: string) => {
+    void (async () => {
+      let dest = id;
+      let title = label;
+      if (!dest && pos) {
+        setStatus("Abriendo despiece…");
+        try {
+          const hit = await resolveFaacExplosion(activeId, pos);
+          if (!hit?.drawingId) {
+            toast.error("No se pudo abrir ese despiece");
+            setStatus("");
+            return;
+          }
+          dest = hit.drawingId;
+          title = explosionTitle(hit.code, hit.pos);
+          setExplosions((prev) =>
+            prev.map((e) => (e.pos === pos ? { ...e, drawingId: dest, code: hit.code } : e)),
+          );
+        } catch {
+          toast.error("No se pudo abrir ese despiece");
+          setStatus("");
+          return;
+        }
+      }
+      if (!dest || dest === activeId) return;
+      setPicked(null);
+      zoomRef.current = 1;
+      setZoomLabel("100%");
+      setStack((s) => [...s, { id: dest, title }]);
+    })();
   };
 
   const goBack = () => {
@@ -141,7 +178,7 @@ export function FaacDrawingViewer({
     const node = target?.closest?.("[data-pos]");
     const fromHotspot = node?.getAttribute("data-pos");
     const fromLabel = (target?.textContent || "").trim();
-    const pos = fromHotspot || (byPos.has(fromLabel) ? fromLabel : "");
+    const pos = fromHotspot || (byPos.has(fromLabel) ? fromLabel : /^EXPL/i.test(fromLabel) ? fromLabel : "");
     if (!pos) {
       setPicked(null);
       return;
@@ -149,9 +186,9 @@ export function FaacDrawingViewer({
     const explAttr = node?.getAttribute("data-expl");
     const expl =
       explosions.find((e) => e.pos === pos) ||
-      explosions.find((e) => String(e.drawingId) === explAttr);
-    if (expl) {
-      openExplosion(expl.drawingId, explosionTitle(expl.code, expl.pos));
+      explosions.find((e) => e.drawingId && String(e.drawingId) === explAttr);
+    if (expl || /^EXPL/i.test(pos)) {
+      openExplosion(expl?.drawingId || Number(explAttr) || 0, explosionTitle(expl?.code || pos, pos), pos);
       return;
     }
     const part = byPos.get(pos);
@@ -272,7 +309,7 @@ export function FaacDrawingViewer({
                 <button
                   type="button"
                   className="w-full rounded-md bg-[#d7ebf7] px-3 py-3 text-left"
-                  onClick={() => openExplosion(e.drawingId, explosionTitle(e.code, e.pos))}
+                  onClick={() => openExplosion(e.drawingId, explosionTitle(e.code, e.pos), e.pos)}
                 >
                   <p className="font-medium leading-snug">Abrir {explosionTitle(e.code, e.pos)}</p>
                   <p className="mt-0.5 font-mono text-xs text-[#1d4f7a]">{e.pos}</p>

@@ -82,8 +82,14 @@ export function FaacDrawingViewer({
     setZoomLabel(`${Math.round(z * 100)}%`);
     const el = frameRef.current;
     if (!el) return;
-    el.style.zoom = String(z);
+    el.style.zoom = "";
     el.style.transform = "";
+    const svg = el.querySelector("svg");
+    if (svg instanceof SVGElement) {
+      svg.style.width = `${z * 100}%`;
+      svg.style.height = "auto";
+      svg.style.maxWidth = "none";
+    }
   };
 
   const zoomOut = () => {

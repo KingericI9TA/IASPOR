@@ -46,6 +46,14 @@ export function AveriasPane({
   onHacerAlbaran: (draft: Partial<AlbaranDraft>) => void;
 }) {
   const [list, setList] = useState<Averia[]>(() => loadAverias());
+
+  useEffect(() => {
+    const refresh = () => {
+      if (document.visibilityState === "visible") setList(loadAverias());
+    };
+    document.addEventListener("visibilitychange", refresh);
+    return () => document.removeEventListener("visibilitychange", refresh);
+  }, []);
   const [filter, setFilter] = useState<Filter>("todas");
   const [openId, setOpenId] = useState<string | null>(null);
   const [pending, setPending] = useState<AveriaDraft | null>(null);

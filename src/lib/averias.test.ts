@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { extractIasporLine, mapsQuery, parseIasporAviso } from "./averias.ts";
+import { extractIasporLine, madridSunday, mapsQuery, parseIasporAviso } from "./averias.ts";
 
 describe("parseIasporAviso", () => {
   it("parte el formato de cinco campos", () => {
@@ -28,5 +28,10 @@ describe("parseIasporAviso", () => {
 
   it("arma la búsqueda de Maps con calle y pueblo", () => {
     assert.equal(mapsQuery({ direccion: "juan alvargonzalez 3", poblacion: "Gijón" }), "juan alvargonzalez 3, Gijón");
+  });
+
+  it("el domingo en Madrid es domingo y el jueves no", () => {
+    assert.equal(madridSunday(new Date("2026-09-20T12:00:00Z")).sunday, true);
+    assert.equal(madridSunday(new Date("2026-09-24T12:00:00Z")).sunday, false);
   });
 });

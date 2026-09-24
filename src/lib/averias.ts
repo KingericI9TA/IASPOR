@@ -1,5 +1,6 @@
 const KEY = "iaspor:averias";
 const CLIP_KEY = "iaspor:averias-clip";
+const SUNDAY_KEY = "iaspor:averias-domingo";
 const MAX = 200;
 
 export const AVERIA_ESTADOS = ["pendiente", "curso", "albaran", "cerrada"] as const;
@@ -128,22 +129,59 @@ function clampList(list: Averia[]) {
     .slice(0, MAX);
 }
 
-export function loadAverias(): Averia[] {
+export function madridSunday(now = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Europe/Madrid",
+    weekday: "short",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(now);
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
+  const sunday = get("weekday") === "Sun";
+  const day = `${get("year")}-${get("month")}-${get("day")}`;
+  return { sunday, day };
+}
+
+function dropClosedThisSunday(list: Averia[], now = new Date()) {
+  const { sunday, day } = madridSunday(now);
+  if (!sunday) return list;
+  let done = "";
+  try {
+    done = localStorage.getItem(SUNDAY_KEY) ?? "";
+  } catch {
+    /* private mode */
+  }
+  if (done === day) return list;
+  try {
+    localStorage.setItem(SUNDAY_KEY, day);
+  } catch {
+    /* ignore */
+  }
+  return list.filter((a) => a.estado !== "cerrada");
+}
+
+function readAverias(): Averia[] {
   try {
     const raw = localStorage.getItem(KEY);
     if (!raw) return [];
     const p = JSON.parse(raw) as Averia[];
     if (!Array.isArray(p)) return [];
-    return clampList(
-      p.filter((a) => a && typeof a === "object" && typeof a.id === "string"),
-    );
+    return p.filter((a) => a && typeof a === "object" && typeof a.id === "string");
   } catch {
     return [];
   }
 }
 
+export function loadAverias(): Averia[] {
+  const list = readAverias();
+  const next = dropClosedThisSunday(list);
+  if (next.length !== list.length) return saveAverias(next);
+  return clampList(next);
+}
+
 export function saveAverias(list: Averia[]) {
-  const next = clampList(list);
+  const next = clampList(dropClosedThisSunday(list));
   try {
     localStorage.setItem(KEY, JSON.stringify(next));
   } catch {

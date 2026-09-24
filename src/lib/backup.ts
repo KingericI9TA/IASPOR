@@ -1,5 +1,5 @@
 import { loadAlbaranHistory, loadLastAlbaranNumber, currentAlbaranYear, restoreAlbaranBackup, peekNextAlbaranNumber, type AlbaranRecord } from "@/lib/albaran";
-import { loadAverias, saveAverias, type Averia } from "@/lib/averias";
+import { loadAverias, madridSunday, saveAverias, type Averia } from "@/lib/averias";
 import { loadDest, loadPedido, saveDest, savePedido, type PedidoItem } from "@/lib/faac-pedido";
 import { listLibrary, getBlob, savePdf } from "@/lib/library";
 import { unzipStore, zipStore } from "@/lib/zip-store";
@@ -111,7 +111,8 @@ export function applyEstado(
     used = true;
   }
   if (Array.isArray(p.averias)) {
-    saveAverias(p.averias);
+    const { sunday } = madridSunday();
+    saveAverias(sunday ? p.averias.filter((a) => a.estado !== "cerrada") : p.averias);
     used = true;
   }
   return used;

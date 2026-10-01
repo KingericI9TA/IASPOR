@@ -116,7 +116,7 @@ export function FaacDrawingViewer({
     el.style.maxWidth = "none";
     const svgBox = svgEl.getBoundingClientRect();
     const host = el.getBoundingClientRect();
-    const next: { key: string; pos: string; left: number; top: number }[] = [];
+    const placed: { key: string; pos: string; left: number; top: number }[] = [];
     if (svgBox.width > 20) {
       svgEl.querySelectorAll("[data-pos]").forEach((node, i) => {
         const pos = node.getAttribute("data-pos") || "";
@@ -125,7 +125,7 @@ export function FaacDrawingViewer({
         if (!(rect instanceof Element)) return;
         const b = rect.getBoundingClientRect();
         if (b.width < 0.4 && b.height < 0.4) return;
-        next.push({
+        placed.push({
           key: `${pos}-${i}`,
           pos,
           left: b.left - host.left + b.width / 2,
@@ -133,7 +133,7 @@ export function FaacDrawingViewer({
         });
       });
     }
-    setMarks(next);
+    setMarks(placed);
   };
 
   useEffect(() => {

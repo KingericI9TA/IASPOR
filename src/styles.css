@@ -410,6 +410,23 @@
     fill: rgb(46 168 255 / 0.22) !important;
   }
 
+  .faac-mark {
+    position: absolute;
+    z-index: 3;
+    width: 44px;
+    height: 44px;
+    transform: translate(-50%, -50%);
+    border-radius: 999px;
+    border: 2px solid rgb(196 122 0 / 0.95);
+    background: rgb(255 176 32 / 0.35);
+    padding: 0;
+  }
+
+  .faac-mark.is-on {
+    background: rgb(255 176 32 / 0.72);
+    border-color: #8a4e00;
+  }
+
   .app-mark {
     filter: none;
     animation: none;

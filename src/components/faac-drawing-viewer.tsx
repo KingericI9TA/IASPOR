@@ -37,6 +37,7 @@ export function FaacDrawingViewer({
   const [parts, setParts] = useState<DrawingPart[]>([]);
   const [explosions, setExplosions] = useState<DrawingExplosion[]>([]);
   const [picked, setPicked] = useState<DrawingPart | null>(null);
+  const [marks, setMarks] = useState<{ key: string; pos: string; left: number; top: number }[]>([]);
   const [url, setUrl] = useState<string | null>(drawingPageUrl(drawingId));
   const [stack, setStack] = useState<{ id: number; title: string }[]>([
     { id: drawingId, title: fallbackTitle ?? "Despiece FAAC" },
@@ -63,6 +64,7 @@ export function FaacDrawingViewer({
     void (async () => {
       setStatus("Abriendo esquema…");
       setPicked(null);
+      setMarks([]);
       setSvg(null);
       setExplosions([]);
       setUrl(drawingPageUrl(activeId));
@@ -112,6 +114,26 @@ export function FaacDrawingViewer({
     svgEl.style.setProperty("max-width", "none", "important");
     el.style.width = `${w}px`;
     el.style.maxWidth = "none";
+    const svgBox = svgEl.getBoundingClientRect();
+    const host = el.getBoundingClientRect();
+    const next: { key: string; pos: string; left: number; top: number }[] = [];
+    if (svgBox.width > 20) {
+      svgEl.querySelectorAll("[data-pos]").forEach((node, i) => {
+        const pos = node.getAttribute("data-pos") || "";
+        if (!pos) return;
+        const rect = node.querySelector("rect:not(.faac-hit)") ?? node.querySelector("rect");
+        if (!(rect instanceof Element)) return;
+        const b = rect.getBoundingClientRect();
+        if (b.width < 0.4 && b.height < 0.4) return;
+        next.push({
+          key: `${pos}-${i}`,
+          pos,
+          left: b.left - host.left + b.width / 2,
+          top: b.top - host.top + b.height / 2,
+        });
+      });
+    }
+    setMarks(next);
   };
 
   useEffect(() => {
@@ -206,7 +228,6 @@ export function FaacDrawingViewer({
     }
     const part = byPos.get(pos);
     if (!part) return;
-    zoomOut();
     setPicked(part);
     scrollerRef.current?.querySelectorAll(".faac-hotspot.is-on").forEach((el) => el.classList.remove("is-on"));
     const mark = node ?? scrollerRef.current?.querySelector(`[data-pos="${CSS.escape(pos)}"]`);
@@ -302,8 +323,23 @@ export function FaacDrawingViewer({
           />
         ) : null}
         {svg ? (
-          <div ref={frameRef}>
+          <div ref={frameRef} className="relative">
             <div dangerouslySetInnerHTML={{ __html: svg }} />
+            {marks.map((m) => (
+              <button
+                key={m.key}
+                type="button"
+                aria-label={`Posición ${m.pos}`}
+                className={`faac-mark${picked?.pos === m.pos ? " is-on" : ""}`}
+                style={{ left: m.left, top: m.top }}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  const node = scrollerRef.current?.querySelector(`[data-pos="${CSS.escape(m.pos)}"]`);
+                  if (node) pickPart(node);
+                }}
+              />
+            ))}
           </div>
         ) : null}
       </div>

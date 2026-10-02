@@ -37,7 +37,6 @@ export function FaacDrawingViewer({
   const [parts, setParts] = useState<DrawingPart[]>([]);
   const [explosions, setExplosions] = useState<DrawingExplosion[]>([]);
   const [picked, setPicked] = useState<DrawingPart | null>(null);
-  const [marks, setMarks] = useState<{ key: string; pos: string; left: number; top: number }[]>([]);
   const [url, setUrl] = useState<string | null>(drawingPageUrl(drawingId));
   const [stack, setStack] = useState<{ id: number; title: string }[]>([
     { id: drawingId, title: fallbackTitle ?? "Despiece FAAC" },
@@ -46,7 +45,14 @@ export function FaacDrawingViewer({
 
   const byPos = useMemo(() => {
     const map = new Map<string, DrawingPart>();
-    for (const p of parts) map.set(p.pos, p);
+    const norm = (pos: string) => {
+      const t = pos.trim();
+      return /^\d+$/.test(t) ? String(Number(t)) : t.toUpperCase();
+    };
+    for (const p of parts) {
+      map.set(p.pos, p);
+      map.set(norm(p.pos), p);
+    }
     return map;
   }, [parts]);
 
@@ -64,7 +70,6 @@ export function FaacDrawingViewer({
     void (async () => {
       setStatus("Abriendo esquema…");
       setPicked(null);
-      setMarks([]);
       setSvg(null);
       setExplosions([]);
       setUrl(drawingPageUrl(activeId));
@@ -114,26 +119,6 @@ export function FaacDrawingViewer({
     svgEl.style.setProperty("max-width", "none", "important");
     el.style.width = `${w}px`;
     el.style.maxWidth = "none";
-    const svgBox = svgEl.getBoundingClientRect();
-    const host = el.getBoundingClientRect();
-    const placed: { key: string; pos: string; left: number; top: number }[] = [];
-    if (svgBox.width > 20) {
-      svgEl.querySelectorAll("[data-pos]").forEach((node, i) => {
-        const pos = node.getAttribute("data-pos") || "";
-        if (!pos) return;
-        const rect = node.querySelector("rect:not(.faac-hit)") ?? node.querySelector("rect");
-        if (!(rect instanceof Element)) return;
-        const b = rect.getBoundingClientRect();
-        if (b.width < 0.4 && b.height < 0.4) return;
-        placed.push({
-          key: `${pos}-${i}`,
-          pos,
-          left: b.left - host.left + b.width / 2,
-          top: b.top - host.top + b.height / 2,
-        });
-      });
-    }
-    setMarks(placed);
   };
 
   useEffect(() => {
@@ -212,61 +197,50 @@ export function FaacDrawingViewer({
     if (target?.closest?.("[data-pieza-menu]")) return;
     const node = target?.closest?.("[data-pos]");
     const fromHotspot = node?.getAttribute("data-pos");
-    const fromLabel = (target?.textContent || "").trim();
+    const fromLabel = (target?.textContent || "").replace(/\s+/g, "");
     const pos = fromHotspot || (byPos.has(fromLabel) ? fromLabel : /^EXPL/i.test(fromLabel) ? fromLabel : "");
-    if (!pos) {
-      setPicked(null);
+    if (!pos) return;
+    if (/^EXPL/i.test(pos)) {
+      const expl = explosions.find((e) => e.pos.toUpperCase() === pos.toUpperCase());
+      openExplosion(expl?.drawingId || Number(node?.getAttribute("data-expl")) || 0, explosionTitle(expl?.code || pos, pos), pos);
       return;
     }
-    const explAttr = node?.getAttribute("data-expl");
-    const expl =
-      explosions.find((e) => e.pos === pos) ||
-      explosions.find((e) => e.drawingId && String(e.drawingId) === explAttr);
-    if (expl || /^EXPL/i.test(pos)) {
-      openExplosion(expl?.drawingId || Number(explAttr) || 0, explosionTitle(expl?.code || pos, pos), pos);
-      return;
-    }
-    const part = byPos.get(pos);
+    const part =
+      byPos.get(pos) ||
+      byPos.get(/^\d+$/.test(pos.trim()) ? String(Number(pos.trim())) : pos.trim().toUpperCase());
     if (!part) return;
     setPicked(part);
+    toast.success(`Pos. ${part.pos}${part.code ? ` · ${part.code}` : ""}`);
     scrollerRef.current?.querySelectorAll(".faac-hotspot.is-on").forEach((el) => el.classList.remove("is-on"));
     const mark = node ?? scrollerRef.current?.querySelector(`[data-pos="${CSS.escape(pos)}"]`);
     mark?.classList.add("is-on");
   };
 
-  const pickFromClient = (clientX: number, clientY: number, target: Element | null) => {
-    if (target?.closest?.("[data-pieza-menu]")) return;
-    const direct = target?.closest?.("[data-pos]");
-    if (direct) {
-      pickPart(direct);
-      return;
-    }
+  const pickFromClient = (clientX: number, clientY: number) => {
     const spots = scrollerRef.current?.querySelectorAll("[data-pos]");
-    if (!spots?.length) {
-      pickPart(target);
-      return;
-    }
+    if (!spots?.length) return;
     let best: Element | null = null;
     let bestD = Infinity;
-    const pad = 36;
     spots.forEach((el) => {
-      const r = el.getBoundingClientRect();
-      if (r.width < 1 && r.height < 1) return;
-      const x1 = r.left - pad;
-      const y1 = r.top - pad;
-      const x2 = r.right + pad;
-      const y2 = r.bottom + pad;
-      if (clientX < x1 || clientX > x2 || clientY < y1 || clientY > y2) return;
-      const cx = (r.left + r.right) / 2;
-      const cy = (r.top + r.bottom) / 2;
-      const d = (clientX - cx) ** 2 + (clientY - cy) ** 2;
-      if (d < bestD) {
-        bestD = d;
+      const rect = el.querySelector("rect:not(.faac-hit)") ?? el.querySelector("rect");
+      const r = (rect ?? el).getBoundingClientRect();
+      if (r.width < 0.5 && r.height < 0.5) return;
+      const cx = r.left + r.width / 2;
+      const cy = r.top + r.height / 2;
+      const d = Math.hypot(clientX - cx, clientY - cy);
+      const reach = Math.max(36, Math.min(r.width, r.height) / 2 + 16);
+      if (d > reach) return;
+      const expl = /^EXPL/i.test(el.getAttribute("data-pos") || "");
+      const score = d + (expl ? 10 : 0);
+      if (score < bestD) {
+        bestD = score;
         best = el;
       }
     });
-    pickPart(best ?? target);
+    if (best) pickPart(best);
   };
+
+  const downRef = useRef<{ x: number; y: number } | null>(null);
 
   const line = picked
     ? formatPedidoText([{ id: "x", code: picked.code, name: picked.name, qty: 1 }])
@@ -303,14 +277,18 @@ export function FaacDrawingViewer({
       <div
         ref={scrollerRef}
         className="faac-drawing relative min-h-0 flex-1 overflow-auto p-1"
+        onPointerDown={(e) => {
+          downRef.current = { x: e.clientX, y: e.clientY };
+        }}
         onPointerUp={(e) => {
           if (!svg) return;
           if (e.pointerType === "mouse" && e.button !== 0) return;
-          const t = e.target as Element;
-          if (t.closest("button, a, [data-pieza-menu]")) return;
-          e.preventDefault();
-          e.stopPropagation();
-          pickFromClient(e.clientX, e.clientY, t);
+          const start = downRef.current;
+          downRef.current = null;
+          if (start && Math.hypot(e.clientX - start.x, e.clientY - start.y) > 14) return;
+          const t = e.target as Element | null;
+          if (t?.closest?.("button, [data-pieza-menu]")) return;
+          pickFromClient(e.clientX, e.clientY);
         }}
       >
         {status ? <p className="px-2 py-4 text-sm text-muted">{status}</p> : null}
@@ -323,23 +301,8 @@ export function FaacDrawingViewer({
           />
         ) : null}
         {svg ? (
-          <div ref={frameRef} className="relative">
+          <div ref={frameRef}>
             <div dangerouslySetInnerHTML={{ __html: svg }} />
-            {marks.map((m) => (
-              <button
-                key={m.key}
-                type="button"
-                aria-label={`Posición ${m.pos}`}
-                className={`faac-mark${picked?.pos === m.pos ? " is-on" : ""}`}
-                style={{ left: m.left, top: m.top }}
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  const node = scrollerRef.current?.querySelector(`[data-pos="${CSS.escape(m.pos)}"]`);
-                  if (node) pickPart(node);
-                }}
-              />
-            ))}
           </div>
         ) : null}
       </div>

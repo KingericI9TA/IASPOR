@@ -343,7 +343,7 @@ function extractDrawingSvg(html: string) {
       const w = num("width");
       const h = num("height");
       if (![x, y, w, h].every(Number.isFinite)) return full;
-      const pad = 64;
+      const pad = 10;
       return `<rect class="faac-hit" x="${x - pad}" y="${y - pad}" width="${w + pad * 2}" height="${h + pad * 2}" fill="transparent" />${full}`;
     });
     return `<g data-pos="${pos}" class="faac-hotspot"${cleaned}>${padded}</g>`;

@@ -410,6 +410,35 @@
     fill: rgb(46 168 255 / 0.22) !important;
   }
 
+  .faac-tap {
+    position: absolute;
+    z-index: 4;
+    width: 48px;
+    height: 48px;
+    transform: translate(-50%, -50%);
+    border-radius: 999px;
+    border: 2px solid #8a4e00;
+    background: rgb(255 176 32 / 0.82);
+    color: #1a1206;
+    font-size: 13px;
+    font-weight: 800;
+    line-height: 1;
+    padding: 0;
+    touch-action: manipulation;
+  }
+
+  .faac-tap.is-expl {
+    border-color: #1d4f7a;
+    background: rgb(46 168 255 / 0.78);
+    color: #fff;
+    font-size: 11px;
+  }
+
+  .faac-tap.is-on {
+    background: #e38b00;
+    color: #fff;
+  }
+
   .app-mark {
     filter: none;
     animation: none;

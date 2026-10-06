@@ -5,17 +5,6 @@ import { drawingPageUrl, explosionTitle, loadFaacDrawing, resolveFaacExplosion, 
 import { formatPedidoText } from "@/lib/faac-pedido";
 import { copyToClipboard } from "@/lib/utils";
 
-function resetPageZoom() {
-  const meta = document.querySelector('meta[name="viewport"]');
-  if (!meta) return;
-  const orig = meta.getAttribute("content") ?? "width=device-width, initial-scale=1, viewport-fit=cover";
-  meta.setAttribute(
-    "content",
-    "width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover",
-  );
-  window.setTimeout(() => meta.setAttribute("content", orig), 120);
-}
-
 export function FaacDrawingViewer({
   drawingId,
   fallbackTitle,
@@ -37,6 +26,7 @@ export function FaacDrawingViewer({
   const [parts, setParts] = useState<DrawingPart[]>([]);
   const [explosions, setExplosions] = useState<DrawingExplosion[]>([]);
   const [picked, setPicked] = useState<DrawingPart | null>(null);
+  const [hits, setHits] = useState<{ key: string; pos: string; left: number; top: number }[]>([]);
   const [url, setUrl] = useState<string | null>(drawingPageUrl(drawingId));
   const [stack, setStack] = useState<{ id: number; title: string }[]>([
     { id: drawingId, title: fallbackTitle ?? "Despiece FAAC" },
@@ -70,6 +60,7 @@ export function FaacDrawingViewer({
     void (async () => {
       setStatus("Abriendo esquema…");
       setPicked(null);
+      setHits([]);
       setSvg(null);
       setExplosions([]);
       setUrl(drawingPageUrl(activeId));
@@ -119,6 +110,24 @@ export function FaacDrawingViewer({
     svgEl.style.setProperty("max-width", "none", "important");
     el.style.width = `${w}px`;
     el.style.maxWidth = "none";
+    window.requestAnimationFrame(() => {
+      const host = el.getBoundingClientRect();
+      const placed: { key: string; pos: string; left: number; top: number }[] = [];
+      svgEl.querySelectorAll("[data-pos]").forEach((node, i) => {
+        const pos = node.getAttribute("data-pos") || "";
+        if (!pos) return;
+        const rect = node.querySelector("rect:not(.faac-hit)") ?? node.querySelector("rect");
+        const b = (rect ?? node).getBoundingClientRect();
+        if (b.width < 0.4 && b.height < 0.4) return;
+        placed.push({
+          key: `${pos}-${i}`,
+          pos,
+          left: b.left - host.left + b.width / 2,
+          top: b.top - host.top + b.height / 2,
+        });
+      });
+      setHits(placed);
+    });
   };
 
   useEffect(() => {
@@ -146,13 +155,6 @@ export function FaacDrawingViewer({
       return extra.length ? [...prev, ...extra] : prev;
     });
   }, [svg]);
-
-  const zoomOut = () => {
-    applyZoom(1);
-    resetPageZoom();
-    const box = scrollerRef.current;
-    if (box) box.scrollTo({ left: 0, top: 0, behavior: "smooth" });
-  };
 
   const openExplosion = (id: number, label: string, pos?: string) => {
     void (async () => {
@@ -193,54 +195,43 @@ export function FaacDrawingViewer({
     setStack((s) => (s.length > 1 ? s.slice(0, -1) : s));
   };
 
-  const pickPart = (target: Element | null) => {
-    if (target?.closest?.("[data-pieza-menu]")) return;
-    const node = target?.closest?.("[data-pos]");
-    const fromHotspot = node?.getAttribute("data-pos");
-    const fromLabel = (target?.textContent || "").replace(/\s+/g, "");
-    const pos = fromHotspot || (byPos.has(fromLabel) ? fromLabel : /^EXPL/i.test(fromLabel) ? fromLabel : "");
-    if (!pos) return;
+  const selectPos = (pos: string) => {
     if (/^EXPL/i.test(pos)) {
       const expl = explosions.find((e) => e.pos.toUpperCase() === pos.toUpperCase());
-      openExplosion(expl?.drawingId || Number(node?.getAttribute("data-expl")) || 0, explosionTitle(expl?.code || pos, pos), pos);
+      openExplosion(
+        expl?.drawingId || 0,
+        explosionTitle(expl?.code || pos, pos),
+        pos,
+      );
       return;
     }
-    const part =
-      byPos.get(pos) ||
-      byPos.get(/^\d+$/.test(pos.trim()) ? String(Number(pos.trim())) : pos.trim().toUpperCase());
-    if (!part) return;
+    const key = /^\d+$/.test(pos.trim()) ? String(Number(pos.trim())) : pos.trim().toUpperCase();
+    const part = byPos.get(pos) || byPos.get(key);
+    if (!part) {
+      toast.error(`Sin ficha para la pos. ${pos}`);
+      return;
+    }
     setPicked(part);
     toast.success(`Pos. ${part.pos}${part.code ? ` · ${part.code}` : ""}`);
     scrollerRef.current?.querySelectorAll(".faac-hotspot.is-on").forEach((el) => el.classList.remove("is-on"));
-    const mark = node ?? scrollerRef.current?.querySelector(`[data-pos="${CSS.escape(pos)}"]`);
-    mark?.classList.add("is-on");
+    scrollerRef.current?.querySelector(`[data-pos="${CSS.escape(pos)}"]`)?.classList.add("is-on");
   };
 
-  const pickFromClient = (clientX: number, clientY: number) => {
-    const spots = scrollerRef.current?.querySelectorAll("[data-pos]");
-    if (!spots?.length) return;
-    let best: Element | null = null;
-    let bestD = Infinity;
-    spots.forEach((el) => {
-      const rect = el.querySelector("rect:not(.faac-hit)") ?? el.querySelector("rect");
-      const r = (rect ?? el).getBoundingClientRect();
-      if (r.width < 0.5 && r.height < 0.5) return;
-      const cx = r.left + r.width / 2;
-      const cy = r.top + r.height / 2;
-      const d = Math.hypot(clientX - cx, clientY - cy);
-      const reach = Math.max(36, Math.min(r.width, r.height) / 2 + 16);
-      if (d > reach) return;
-      const expl = /^EXPL/i.test(el.getAttribute("data-pos") || "");
-      const score = d + (expl ? 10 : 0);
-      if (score < bestD) {
-        bestD = score;
-        best = el;
+  const nearestPos = (clientX: number, clientY: number) => {
+    const frame = frameRef.current;
+    if (!frame || hits.length === 0) return "";
+    const host = frame.getBoundingClientRect();
+    let best = "";
+    let bestD = 64;
+    for (const hit of hits) {
+      const d = Math.hypot(clientX - (host.left + hit.left), clientY - (host.top + hit.top));
+      if (d < bestD) {
+        bestD = d;
+        best = hit.pos;
       }
-    });
-    if (best) pickPart(best);
+    }
+    return best;
   };
-
-  const downRef = useRef<{ x: number; y: number } | null>(null);
 
   const line = picked
     ? formatPedidoText([{ id: "x", code: picked.code, name: picked.name, qty: 1 }])
@@ -277,18 +268,11 @@ export function FaacDrawingViewer({
       <div
         ref={scrollerRef}
         className="faac-drawing relative min-h-0 flex-1 overflow-auto p-1"
-        onPointerDown={(e) => {
-          downRef.current = { x: e.clientX, y: e.clientY };
-        }}
-        onPointerUp={(e) => {
-          if (!svg) return;
-          if (e.pointerType === "mouse" && e.button !== 0) return;
-          const start = downRef.current;
-          downRef.current = null;
-          if (start && Math.hypot(e.clientX - start.x, e.clientY - start.y) > 14) return;
+        onClick={(e) => {
           const t = e.target as Element | null;
-          if (t?.closest?.("button, [data-pieza-menu]")) return;
-          pickFromClient(e.clientX, e.clientY);
+          if (t?.closest("button, a, [data-pieza-menu]")) return;
+          const pos = nearestPos(e.clientX, e.clientY);
+          if (pos) selectPos(pos);
         }}
       >
         {status ? <p className="px-2 py-4 text-sm text-muted">{status}</p> : null}
@@ -301,8 +285,24 @@ export function FaacDrawingViewer({
           />
         ) : null}
         {svg ? (
-          <div ref={frameRef}>
+          <div ref={frameRef} className="relative">
             <div dangerouslySetInnerHTML={{ __html: svg }} />
+            {hits.map((hit) => (
+              <button
+                key={hit.key}
+                type="button"
+                className={`faac-tap${/^EXPL/i.test(hit.pos) ? " is-expl" : ""}${picked?.pos === hit.pos ? " is-on" : ""}`}
+                style={{ left: hit.left, top: hit.top }}
+                aria-label={`Posición ${hit.pos}`}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  selectPos(hit.pos);
+                }}
+              >
+                {/^EXPL/i.test(hit.pos) ? "EX" : hit.pos}
+              </button>
+            ))}
           </div>
         ) : null}
       </div>
@@ -333,16 +333,7 @@ export function FaacDrawingViewer({
                     className={`w-full rounded-md px-3 py-2 text-left ${
                       picked?.id === p.id ? "bg-[#dfe7ee]" : "bg-[#eef2f6]"
                     }`}
-                    onClick={() => {
-                      zoomOut();
-                      setPicked(p);
-                      scrollerRef.current
-                        ?.querySelectorAll(".faac-hotspot.is-on")
-                        .forEach((el) => el.classList.remove("is-on"));
-                      scrollerRef.current
-                        ?.querySelector(`[data-pos="${CSS.escape(p.pos)}"]`)
-                        ?.classList.add("is-on");
-                    }}
+                    onClick={() => selectPos(p.pos)}
                   >
                     <p className="font-medium leading-snug">{p.name}</p>
                     <p className="mt-0.5 font-mono text-xs text-[#1d4f7a]">

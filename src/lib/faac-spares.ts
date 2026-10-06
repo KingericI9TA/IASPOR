@@ -343,8 +343,10 @@ function extractDrawingSvg(html: string) {
       const w = num("width");
       const h = num("height");
       if (![x, y, w, h].every(Number.isFinite)) return full;
-      const pad = 10;
-      return `<rect class="faac-hit" x="${x - pad}" y="${y - pad}" width="${w + pad * 2}" height="${h + pad * 2}" fill="transparent" />${full}`;
+      const size = 46;
+      const hx = (x + w / 2 - size / 2).toFixed(2);
+      const hy = (y + h / 2 - size / 2).toFixed(2);
+      return `<rect class="faac-hit" x="${hx}" y="${hy}" width="${size}" height="${size}" rx="${size / 2}" style="pointer-events:all"/>${full}`;
     });
     return `<g data-pos="${pos}" class="faac-hotspot"${cleaned}>${padded}</g>`;
   });

@@ -26,7 +26,6 @@ export function FaacDrawingViewer({
   const [parts, setParts] = useState<DrawingPart[]>([]);
   const [explosions, setExplosions] = useState<DrawingExplosion[]>([]);
   const [picked, setPicked] = useState<DrawingPart | null>(null);
-  const [hits, setHits] = useState<{ key: string; pos: string; left: number; top: number }[]>([]);
   const [url, setUrl] = useState<string | null>(drawingPageUrl(drawingId));
   const [stack, setStack] = useState<{ id: number; title: string }[]>([
     { id: drawingId, title: fallbackTitle ?? "Despiece FAAC" },
@@ -60,7 +59,6 @@ export function FaacDrawingViewer({
     void (async () => {
       setStatus("Abriendo esquema…");
       setPicked(null);
-      setHits([]);
       setSvg(null);
       setExplosions([]);
       setUrl(drawingPageUrl(activeId));
@@ -110,24 +108,6 @@ export function FaacDrawingViewer({
     svgEl.style.setProperty("max-width", "none", "important");
     el.style.width = `${w}px`;
     el.style.maxWidth = "none";
-    window.requestAnimationFrame(() => {
-      const host = el.getBoundingClientRect();
-      const placed: { key: string; pos: string; left: number; top: number }[] = [];
-      svgEl.querySelectorAll("[data-pos]").forEach((node, i) => {
-        const pos = node.getAttribute("data-pos") || "";
-        if (!pos) return;
-        const rect = node.querySelector("rect:not(.faac-hit)") ?? node.querySelector("rect");
-        const b = (rect ?? node).getBoundingClientRect();
-        if (b.width < 0.4 && b.height < 0.4) return;
-        placed.push({
-          key: `${pos}-${i}`,
-          pos,
-          left: b.left - host.left + b.width / 2,
-          top: b.top - host.top + b.height / 2,
-        });
-      });
-      setHits(placed);
-    });
   };
 
   useEffect(() => {
@@ -214,23 +194,40 @@ export function FaacDrawingViewer({
     setPicked(part);
     toast.success(`Pos. ${part.pos}${part.code ? ` · ${part.code}` : ""}`);
     scrollerRef.current?.querySelectorAll(".faac-hotspot.is-on").forEach((el) => el.classList.remove("is-on"));
-    scrollerRef.current?.querySelector(`[data-pos="${CSS.escape(pos)}"]`)?.classList.add("is-on");
+    scrollerRef.current?.querySelectorAll(`[data-pos="${CSS.escape(pos)}"]`).forEach((el) => el.classList.add("is-on"));
   };
 
-  const nearestPos = (clientX: number, clientY: number) => {
-    const frame = frameRef.current;
-    if (!frame || hits.length === 0) return "";
-    const host = frame.getBoundingClientRect();
+  const lastPick = useRef(0);
+  const downRef = useRef<{ x: number; y: number; l: number; t: number } | null>(null);
+
+  const posFromPoint = (clientX: number, clientY: number, target: EventTarget | null) => {
+    const el = target instanceof Element ? target : null;
+    const direct = el?.closest?.("[data-pos]")?.getAttribute("data-pos");
+    if (direct) return direct;
+    const root = scrollerRef.current;
+    if (!root) return "";
     let best = "";
-    let bestD = 64;
-    for (const hit of hits) {
-      const d = Math.hypot(clientX - (host.left + hit.left), clientY - (host.top + hit.top));
+    let bestD = 56;
+    root.querySelectorAll("[data-pos]").forEach((node) => {
+      const mark = node.querySelector(".faac-hit") ?? node;
+      const r = mark.getBoundingClientRect();
+      if (r.width < 1 && r.height < 1) return;
+      const d = Math.hypot(clientX - (r.left + r.width / 2), clientY - (r.top + r.height / 2));
       if (d < bestD) {
         bestD = d;
-        best = hit.pos;
+        best = node.getAttribute("data-pos") || "";
       }
-    }
+    });
     return best;
+  };
+
+  const pickAt = (clientX: number, clientY: number, target: EventTarget | null) => {
+    const now = Date.now();
+    if (now - lastPick.current < 350) return;
+    const pos = posFromPoint(clientX, clientY, target);
+    if (!pos) return;
+    lastPick.current = now;
+    selectPos(pos);
   };
 
   const line = picked
@@ -268,11 +265,36 @@ export function FaacDrawingViewer({
       <div
         ref={scrollerRef}
         className="faac-drawing relative min-h-0 flex-1 overflow-auto p-1"
-        onClick={(e) => {
+        onPointerDown={(e) => {
+          const box = scrollerRef.current;
+          downRef.current = {
+            x: e.clientX,
+            y: e.clientY,
+            l: box?.scrollLeft ?? 0,
+            t: box?.scrollTop ?? 0,
+          };
+        }}
+        onPointerUp={(e) => {
+          if (!svg) return;
+          if (e.pointerType === "mouse" && e.button !== 0) return;
+          const start = downRef.current;
+          downRef.current = null;
+          const box = scrollerRef.current;
+          const scrolled =
+            !!start &&
+            !!box &&
+            (Math.abs(box.scrollLeft - start.l) > 6 || Math.abs(box.scrollTop - start.t) > 6);
+          const moved = !!start && Math.hypot(e.clientX - start.x, e.clientY - start.y) > 40;
+          if (scrolled || moved) return;
           const t = e.target as Element | null;
-          if (t?.closest("button, a, [data-pieza-menu]")) return;
-          const pos = nearestPos(e.clientX, e.clientY);
-          if (pos) selectPos(pos);
+          if (t?.closest("[data-pieza-menu]")) return;
+          pickAt(e.clientX, e.clientY, e.target);
+        }}
+        onClick={(e) => {
+          if (!svg) return;
+          const t = e.target as Element | null;
+          if (t?.closest("button, [data-pieza-menu]")) return;
+          pickAt(e.clientX, e.clientY, e.target);
         }}
       >
         {status ? <p className="px-2 py-4 text-sm text-muted">{status}</p> : null}
@@ -287,22 +309,6 @@ export function FaacDrawingViewer({
         {svg ? (
           <div ref={frameRef} className="relative">
             <div dangerouslySetInnerHTML={{ __html: svg }} />
-            {hits.map((hit) => (
-              <button
-                key={hit.key}
-                type="button"
-                className={`faac-tap${/^EXPL/i.test(hit.pos) ? " is-expl" : ""}${picked?.pos === hit.pos ? " is-on" : ""}`}
-                style={{ left: hit.left, top: hit.top }}
-                aria-label={`Posición ${hit.pos}`}
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  selectPos(hit.pos);
-                }}
-              >
-                {/^EXPL/i.test(hit.pos) ? "EX" : hit.pos}
-              </button>
-            ))}
           </div>
         ) : null}
       </div>

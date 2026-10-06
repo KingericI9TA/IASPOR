@@ -370,7 +370,6 @@
     background: #f6f3ea;
     border: 8px solid #f3efe4;
     box-shadow: 0 8px 28px rgb(0 0 0 / 0.28);
-    pointer-events: none;
   }
 
   .faac-drawing svg text {
@@ -380,63 +379,31 @@
     paint-order: stroke fill;
   }
 
+  .faac-drawing svg,
   .faac-drawing svg * {
     pointer-events: none;
   }
 
-  .faac-drawing .faac-hotspot,
-  .faac-drawing .faac-hotspot * {
-    pointer-events: auto;
-  }
-
-  .faac-hotspot {
-    cursor: pointer;
-  }
-
-  .faac-hotspot rect {
-    fill: rgb(20 20 20 / 0.01) !important;
-    stroke: none !important;
+  .faac-drawing .faac-hit {
+    pointer-events: all !important;
+    fill: #ffb020 !important;
+    fill-opacity: 0.82 !important;
+    stroke: #8a4e00 !important;
+    stroke-width: 1.6 !important;
     opacity: 1 !important;
-  }
-
-  .faac-hotspot.is-on rect {
-    fill: rgb(255 176 32 / 0.28) !important;
-    stroke: #c47a00 !important;
-    stroke-width: 2.4 !important;
-  }
-
-  .faac-hotspot[data-expl] rect,
-  .faac-hotspot[data-pos^="EXPL"] rect {
-    fill: rgb(46 168 255 / 0.22) !important;
-  }
-
-  .faac-tap {
-    position: absolute;
-    z-index: 4;
-    width: 48px;
-    height: 48px;
-    transform: translate(-50%, -50%);
-    border-radius: 999px;
-    border: 2px solid #8a4e00;
-    background: rgb(255 176 32 / 0.82);
-    color: #1a1206;
-    font-size: 13px;
-    font-weight: 800;
-    line-height: 1;
-    padding: 0;
     touch-action: manipulation;
   }
 
-  .faac-tap.is-expl {
-    border-color: #1d4f7a;
-    background: rgb(46 168 255 / 0.78);
-    color: #fff;
-    font-size: 11px;
+  .faac-hotspot.is-on .faac-hit {
+    fill: #e38b00 !important;
+    fill-opacity: 1 !important;
+    stroke: #5c3200 !important;
   }
 
-  .faac-tap.is-on {
-    background: #e38b00;
-    color: #fff;
+  .faac-hotspot[data-pos^="EXPL"] .faac-hit,
+  .faac-hotspot[data-expl] .faac-hit {
+    fill: #2ea8ff !important;
+    stroke: #1d4f7a !important;
   }
 
   .app-mark {
